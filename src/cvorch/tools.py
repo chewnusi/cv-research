@@ -1,19 +1,30 @@
-"""Tool contracts (shared by both orchestration modes) and the mock tool runtime."""
+"""Tool contracts (shared by both orchestration modes) and the simulated tool runtime.
+
+The contracts describe the intended real system:
+
+    segment_dataset  SAM3 text-prompt segmentation of every image of a dataset
+    export_yolo      SAM3 masks -> bounding boxes -> YOLO *detection* dataset
+    train_yolo       Ultralytics YOLO *detection* training (creates a job)
+    get_job_status   status/metrics of a training job
+    create_labeling_project  project in a labeling platform (mock; no CVAT)
+
+Nothing is actually executed: the runtime only updates the simulated workspace and returns
+plausible metadata. The research subject is orchestration, not CV quality.
+"""
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
-from typing import Any, Callable, Literal
+from typing import Annotated, Any, Callable, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
-from .workspace import Workspace
+from .workspace import Job, Workspace, normalize_dataset_ref
 
-SEGMENTATION_MODELS = ("sam2", "yolo11n-seg", "yolo11s-seg")
-YOLO_MODELS = (
-    "yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x",
-    "yolo11n-seg", "yolo11s-seg", "yolo11m-seg",
-)
+YOLO_DETECTION_MODELS = ("yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x")
+
+NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class _Args(BaseModel):
@@ -21,24 +32,31 @@ class _Args(BaseModel):
 
 
 class SegmentDatasetArgs(_Args):
-    """Automatically segment all images of a dataset and save the annotations."""
+    """Segment every image of a dataset with SAM3 using a text prompt describing the target objects.
+    Works on a dataset in any state (re-segmenting replaces earlier annotations); the dataset becomes
+    'annotated'. The text prompt must come from the user's request."""
     dataset: str = Field(description="Dataset name, e.g. 'cats'.")
-    model: Literal[SEGMENTATION_MODELS] = Field("sam2", description="Segmentation model.")  # type: ignore[valid-type]
-    classes: list[str] | None = Field(None, description="Optional list of object classes to segment (text prompts).")
+    text_prompt: NonEmptyStr = Field(description="Text description of the objects to segment, e.g. 'car'.")
+    class_name: NonEmptyStr | None = Field(
+        None, description="Class label for the resulting annotations. Defaults to the text prompt.")
     confidence: float = Field(0.5, gt=0.0, lt=1.0, description="Mask confidence threshold, between 0 and 1.")
 
 
 class ExportYoloArgs(_Args):
-    """Convert an annotated dataset into YOLO format (images/, labels/, data.yaml) with a train/val split."""
-    dataset: str = Field(description="Dataset name. The dataset must already be annotated.")
+    """Convert the SAM3 annotations of a dataset into a YOLO object-detection dataset
+    (masks -> bounding boxes; images/, labels/, data.yaml) with a train/val split.
+    Needs the dataset in 'annotated' or 'yolo' state (a 'yolo' dataset can be re-exported) when the step
+    runs; it becomes 'yolo'."""
+    dataset: str = Field(description="Dataset name, in 'annotated' or 'yolo' state when this step runs.")
     val_split: float = Field(0.2, gt=0.0, le=0.5, description="Fraction of images used for validation.")
-    task: Literal["detect", "segment"] = Field("segment", description="Export boxes (detect) or polygons (segment).")
 
 
 class TrainYoloArgs(_Args):
-    """Start training a YOLO model on a dataset in YOLO format. Returns a job id."""
-    dataset: str = Field(description="Dataset name. The dataset must already be in YOLO format.")
-    model: Literal[YOLO_MODELS] = Field("yolo11n", description="YOLO model variant.")  # type: ignore[valid-type]
+    """Start training an Ultralytics YOLO object-detection model on a dataset in YOLO format.
+    Needs the dataset in 'yolo' state when the step runs. Returns a job id. Several training jobs may run
+    at the same time, on the same or different datasets."""
+    dataset: str = Field(description="Dataset name, in 'yolo' state when this step runs.")
+    model: Literal[YOLO_DETECTION_MODELS] = Field("yolo11n", description="YOLO11 detection model variant.")  # type: ignore[valid-type]
     epochs: int = Field(100, ge=1, le=1000, description="Number of training epochs.")
     batch_size: int = Field(16, ge=1, le=256, description="Batch size.")
     imgsz: int = Field(640, ge=32, le=2048, description="Training image size in pixels.")
@@ -50,8 +68,8 @@ class GetJobStatusArgs(_Args):
 
 
 class CreateLabelingProjectArgs(_Args):
-    """Create a project in the labeling platform for manual review/correction of a dataset."""
-    project_name: str = Field(min_length=1, description="Name of the labeling project.")
+    """Create a project in the labeling platform for manual review/correction of a dataset (simulated)."""
+    project_name: NonEmptyStr = Field(description="Name of the labeling project.")
     dataset: str = Field(description="Dataset name to attach to the project.")
 
 
@@ -62,7 +80,7 @@ class ToolSpec:
 
     @property
     def description(self) -> str:
-        return (self.args_model.__doc__ or "").strip()
+        return " ".join((self.args_model.__doc__ or "").split())
 
     def parameters_schema(self) -> dict:
         schema = self.args_model.model_json_schema()
@@ -79,9 +97,7 @@ class ToolSpec:
         }
 
     def defaults(self) -> dict[str, Any]:
-        return {
-            k: f.default for k, f in self.args_model.model_fields.items() if not f.is_required()
-        }
+        return {k: f.default for k, f in self.args_model.model_fields.items() if not f.is_required()}
 
 
 TOOLS: dict[str, ToolSpec] = {
@@ -101,15 +117,89 @@ def openai_tools() -> list[dict]:
 
 
 def tools_catalog_text() -> str:
-    """Same tool contracts as the baseline gets via the `tools` API, rendered for a prompt."""
+    """The same tool contracts the baseline receives through tool binding, rendered for a prompt."""
     parts = []
     for t in TOOLS.values():
         parts.append(f"### {t.name}\n{t.description}\nParameters (JSON schema): {json.dumps(t.parameters_schema())}")
     return "\n\n".join(parts)
 
 
-def format_validation_error(e: ValidationError) -> str:
-    return "; ".join(f"{'.'.join(str(p) for p in err['loc']) or '<root>'}: {err['msg']}" for err in e.errors())
+# --------------------------------------------------------------------------- argument normalization
+
+_PERCENT = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*%\s*$")
+_NUMBER = re.compile(r"^\s*-?\d+(?:\.\d+)?\s*$")
+
+
+def _numeric_type(tool: str, key: str) -> type | None:
+    spec = TOOLS.get(tool)
+    f = spec.args_model.model_fields.get(key) if spec else None
+    return f.annotation if f is not None and f.annotation in (int, float) else None
+
+
+def normalize_value(tool: str, key: str, value: Any, workspace: Workspace | None = None) -> Any:
+    """Lossless format conversion only; values are never clamped or changed in meaning."""
+    if key == "dataset" and isinstance(value, str):
+        name = normalize_dataset_ref(value)
+        return name if workspace is None or name in workspace.datasets else value
+    if key == "job_id" and isinstance(value, str):
+        return value.strip()
+    typ = _numeric_type(tool, key)
+    if typ is float and isinstance(value, str):
+        if m := _PERCENT.match(value):
+            return float(m.group(1)) / 100
+        if _NUMBER.match(value):
+            return float(value)
+    if typ is int and isinstance(value, str) and _NUMBER.match(value):
+        num = float(value)
+        return int(num) if num.is_integer() else num
+    return value
+
+
+def normalize_arguments(tool: str, args: dict[str, Any], workspace: Workspace | None = None) -> dict[str, Any]:
+    """Drop nulls ("not specified") and normalize formats."""
+    return {k: normalize_value(tool, k, v, workspace) for k, v in args.items() if v is not None}
+
+
+# --------------------------------------------------------------------------- argument errors
+
+_ERROR_CODES = {
+    "missing": "missing_argument",
+    "extra_forbidden": "unsupported_argument",
+    "literal_error": "invalid_enum_value",
+    "enum": "invalid_enum_value",
+    "greater_than": "out_of_range",
+    "greater_than_equal": "out_of_range",
+    "less_than": "out_of_range",
+    "less_than_equal": "out_of_range",
+    "string_too_short": "empty_argument",
+}
+
+
+@dataclass(frozen=True)
+class ArgumentError:
+    code: str  # missing_argument | unsupported_argument | wrong_type | invalid_enum_value | out_of_range | empty_argument
+    field: str
+    message: str
+
+
+def argument_errors(e: ValidationError) -> list[ArgumentError]:
+    out = []
+    for err in e.errors():
+        loc = ".".join(str(p) for p in err["loc"]) or "<root>"
+        out.append(ArgumentError(_ERROR_CODES.get(err["type"], "wrong_type"), loc, err["msg"]))
+    return out
+
+
+def check_arguments(tool: str, args: dict[str, Any]) -> tuple[dict[str, Any] | None, list[ArgumentError]]:
+    """Validate arguments against the tool contract. Returns (parsed args with defaults, errors)."""
+    try:
+        return TOOLS[tool].args_model.model_validate(args).model_dump(), []
+    except ValidationError as e:
+        return None, argument_errors(e)
+
+
+def format_argument_errors(errors: list[ArgumentError]) -> str:
+    return "; ".join(f"{e.field}: {e.message}" for e in errors)
 
 
 # --------------------------------------------------------------------------- runtime
@@ -134,9 +224,9 @@ class ToolCallRecord:
 class MockToolRuntime:
     """Executes tool calls against a simulated workspace and records every call.
 
-    Preconditions that a real implementation would hit at run time (missing dataset,
-    wrong dataset state, unknown job) are always enforced. Argument type/range checks
-    are enforced only when `arg_validation` is on.
+    Preconditions that a real implementation would hit at run time (missing dataset, wrong dataset
+    state, unknown job) are always enforced. Argument contract checks (types, ranges, enums) are
+    enforced only when `arg_validation` is on, as a typical tool framework would do.
     """
 
     def __init__(self, workspace: Workspace, arg_validation: bool = True):
@@ -157,8 +247,7 @@ class MockToolRuntime:
                 raise ToolError(f"unknown tool '{tool}'")
             if not isinstance(args, dict):
                 raise ToolError("arguments must be a JSON object")
-            parsed = self._parse(tool, args)
-            output = self._handlers[tool](parsed)
+            output = self._handlers[tool](self._parse(tool, args))
             rec = ToolCallRecord(tool, args, True, output=output)
         except ToolError as e:
             rec = ToolCallRecord(tool, args, False, error=str(e))
@@ -166,12 +255,13 @@ class MockToolRuntime:
         return rec
 
     def _parse(self, tool: str, args: dict) -> dict:
+        args = normalize_arguments(tool, args, self.ws)
         spec = TOOLS[tool]
         if self.arg_validation:
-            try:
-                return spec.args_model.model_validate(args).model_dump()
-            except ValidationError as e:
-                raise ToolError(f"invalid arguments: {format_validation_error(e)}") from None
+            parsed, errors = check_arguments(tool, args)
+            if errors:
+                raise ToolError(f"invalid arguments: {format_argument_errors(errors)}")
+            return parsed  # type: ignore[return-value]
         merged = {**spec.defaults(), **args}
         missing = [k for k, f in spec.args_model.model_fields.items() if f.is_required() and k not in merged]
         if missing:
@@ -186,35 +276,40 @@ class MockToolRuntime:
 
     def _segment(self, a: dict) -> dict:
         d = self._dataset(a["dataset"])
-        d.state = "annotated" if d.state == "raw" else d.state
-        if a.get("classes"):
-            d.classes = list(a["classes"])
-        return {"status": "completed", "annotation_path": f"{d.path}/annotations", "num_images": d.num_images,
-                "model": a.get("model")}
+        class_name = a.get("class_name") or a.get("text_prompt")
+        d.state = "annotated"
+        d.classes = [str(class_name)]
+        return {"status": "completed", "backend": "SAM3 (simulated)", "annotation_path": f"{d.path}/annotations",
+                "num_images": d.num_images, "text_prompt": a.get("text_prompt"), "class_name": class_name,
+                "confidence": a.get("confidence")}
 
     def _export(self, a: dict) -> dict:
         d = self._dataset(a["dataset"])
         if d.state == "raw":
             raise ToolError(f"dataset '{d.name}' has no annotations; segment it first")
         d.state = "yolo"
-        return {"status": "completed", "dataset_path": f"{d.path}/yolo", "data_yaml": f"{d.path}/yolo/data.yaml"}
+        val = a.get("val_split")
+        num_val = round(d.num_images * val) if isinstance(val, (int, float)) else None
+        return {"status": "completed", "format": "yolo-detection", "dataset_path": f"{d.path}/yolo",
+                "data_yaml": f"{d.path}/yolo/data.yaml", "classes": d.classes,
+                "num_train": d.num_images - num_val if num_val is not None else None, "num_val": num_val}
 
     def _train(self, a: dict) -> dict:
         d = self._dataset(a["dataset"])
         if d.state != "yolo":
             raise ToolError(f"dataset '{d.name}' is not in YOLO format (state={d.state}); export it first")
-        from .workspace import Job
-
         job_id = self.ws.next_job_id()
         self.ws.jobs[job_id] = Job(job_id, d.name, str(a.get("model")), a.get("epochs"), "queued")  # type: ignore[arg-type]
-        return {"status": "queued", "job_id": job_id, "weights_path": f"runs/{job_id}/weights/best.pt"}
+        return {"status": "queued", "job_id": job_id, "model": a.get("model"), "epochs": a.get("epochs"),
+                "weights_path": f"runs/{job_id}/weights/best.pt"}
 
     def _status(self, a: dict) -> dict:
         job = self.ws.jobs.get(str(a["job_id"]).strip())
         if job is None:
             raise ToolError(f"job '{a['job_id']}' not found")
         metrics = {"mAP50": 0.71, "mAP50-95": 0.48} if job.status == "completed" else None
-        return {"job_id": job.job_id, "status": job.status, "metrics": metrics}
+        return {"job_id": job.job_id, "status": job.status, "dataset": job.dataset, "model": job.model,
+                "metrics": metrics}
 
     def _labeling(self, a: dict) -> dict:
         d = self._dataset(a["dataset"])

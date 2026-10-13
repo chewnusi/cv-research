@@ -3,12 +3,15 @@
 No images are touched. The workspace only tracks *which state each dataset is in*,
 so that tool preconditions (and therefore step ordering) are meaningful:
 
-    raw --segment_dataset--> annotated --export_yolo--> yolo --train_yolo--> (job)
+    raw --segment_dataset (SAM3)--> annotated --export_yolo (detection)--> yolo --train_yolo--> (job)
+
+Training never changes a dataset's state; it creates a job. Datasets have no default segmentation
+prompt: the SAM3 text prompt must always come from the user's request.
 """
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Literal
 
 DatasetState = Literal["raw", "annotated", "yolo"]
@@ -59,15 +62,43 @@ class Workspace:
         self._project_counter += 1
         return f"proj-{self._project_counter:03d}"
 
+    def snapshot(self) -> dict:
+        return {
+            "datasets": {n: asdict(d) for n, d in self.datasets.items()},
+            "jobs": {j: asdict(job) for j, job in self.jobs.items()},
+            "projects": copy.deepcopy(self.projects),
+        }
+
     def describe(self) -> str:
         lines = ["Datasets (name: state, images, description):"]
         for d in self.datasets.values():
-            extra = f", classes={d.classes}" if d.classes else ""
+            extra = f", annotated classes={d.classes}" if d.classes else ""
             lines.append(f"- {d.name}: {d.state}, {d.num_images} images, {d.description}{extra}")
-        lines.append("Dataset states: raw = images only; annotated = has segmentation annotations; "
-                     "yolo = exported in YOLO format and ready for training.")
+        lines.append("Dataset states: raw = images only; annotated = has SAM3 segmentation annotations; "
+                     "yolo = exported as a YOLO detection dataset and ready for training.")
+        lines.append("Datasets have no default segmentation prompt.")
         lines.append(f"Existing training job ids: {', '.join(self.jobs)}")
         return "\n".join(lines)
+
+
+def snapshot_diff(before: dict, after: dict) -> list[str]:
+    """Human-readable changes between two `Workspace.snapshot()`s."""
+    changes: list[str] = []
+    for name, d in after["datasets"].items():
+        old = before["datasets"].get(name)
+        if old is None:
+            changes.append(f"dataset {name} added ({d['state']})")
+        elif old["state"] != d["state"]:
+            changes.append(f"dataset {name}: {old['state']} -> {d['state']}")
+        elif old["classes"] != d["classes"]:
+            changes.append(f"dataset {name}: classes {old['classes']} -> {d['classes']}")
+    for job_id, j in after["jobs"].items():
+        if job_id not in before["jobs"]:
+            changes.append(f"job {job_id} created ({j['model']} on {j['dataset']}, {j['epochs']} epochs)")
+    for pid, p in after["projects"].items():
+        if pid not in before["projects"]:
+            changes.append(f"labeling project {pid} created ({p.get('name')} on {p.get('dataset')})")
+    return changes
 
 
 def normalize_dataset_ref(ref: str | None) -> str | None:

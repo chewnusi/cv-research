@@ -4,13 +4,15 @@ version = "0.1.0"
 description = "LLM-driven orchestration of CV data-preparation and training workflows: direct tool calling vs. structured plan + validation"
 requires-python = ">=3.11"
 dependencies = [
-    "openai>=1.40",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.3",
     "pydantic>=2.6",
     "python-dotenv>=1.0",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+ui = ["streamlit>=1.35"]
 
 [project.scripts]
 cvorch = "cvorch.cli:main"

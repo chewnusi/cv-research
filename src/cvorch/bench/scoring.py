@@ -8,9 +8,17 @@ decision  - what the LLM-driven system *decided* to do.
 outcome   - what was actually *executed* successfully against the workspace.
 
 This separation lets us see both routing quality of the LLM and the effect of the validator.
+
+Error tags: wrong_tool, missing_step, extra_step, wrong_order, wrong_parameter, missing_parameter,
+hallucinated_parameter, hallucinated_tool, false_abstention, acted_on_invalid_request, runtime_error,
+wrong_execution, false_block, system_error, plus
+  plan_parse_error      planned mode: the model's output was not a valid ExecutionPlan
+  partial_side_effects  a should-abstain request where tools were nevertheless executed
+                        (e.g. segmentation and export ran before an invalid training step failed)
 """
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -39,27 +47,26 @@ def _same_word(a: str, b: str) -> bool:
     return bool(_word_forms(a) & _word_forms(b))
 
 
-def _same_classes(expected: list, actual: list) -> bool:
-    if len(expected) != len(actual):
-        return False
-    remaining = [str(x) for x in actual]
-    for e in expected:
-        hit = next((a for a in remaining if _same_word(str(e), a)), None)
-        if hit is None:
-            return False
-        remaining.remove(hit)
-    return True
+_FILLER = {"a", "an", "the", "all", "every", "each", "any"}
+_PHRASE_KEYS = {"text_prompt", "class_name"}
+
+
+def same_phrase(a: str, b: str) -> bool:
+    """'cars' == 'car', 'the red apples' == 'red apple', 'Bus' == 'bus'."""
+    ta = [w for w in re.findall(r"[a-z0-9]+", a.lower()) if w not in _FILLER]
+    tb = [w for w in re.findall(r"[a-z0-9]+", b.lower()) if w not in _FILLER]
+    return len(ta) == len(tb) and bool(ta) and all(_same_word(x, y) for x, y in zip(ta, tb))
 
 
 def values_equal(key: str, expected: Any, actual: Any) -> bool:
     if expected == "*":
         return actual is not None
     if expected is None:
-        return actual in (None, [])
+        return actual is None
     if key == "dataset":
         return isinstance(actual, str) and normalize_dataset_ref(actual) == normalize_dataset_ref(expected)
-    if key == "classes":
-        return isinstance(actual, list) and _same_classes(expected, actual)
+    if key in _PHRASE_KEYS:
+        return isinstance(actual, str) and same_phrase(expected, actual)
     if isinstance(expected, str):
         return isinstance(actual, str) and actual.strip().strip("'\"").lower() == expected.strip().lower()
     if isinstance(expected, bool) or isinstance(actual, bool):
@@ -74,25 +81,34 @@ def values_equal(key: str, expected: Any, actual: Any) -> bool:
     return expected == actual
 
 
+_NO_DEFAULT = object()
+
+
+def effective_default(tool: str, key: str, args: dict[str, Any]) -> Any:
+    """Value a tool uses when `key` is omitted. class_name defaults to the step's text_prompt."""
+    if tool == "segment_dataset" and key == "class_name":
+        return args.get("text_prompt", _NO_DEFAULT)
+    spec = TOOLS.get(tool)
+    return spec.defaults().get(key, _NO_DEFAULT) if spec else _NO_DEFAULT
+
+
 def arg_errors(expected: Step, actual: Step) -> list[str]:
     """Compare args of two steps with the same tool. Returns error tags."""
     errs: list[str] = []
     exp_args, act_args = expected["args"], actual.get("args") or {}
     for k, v in exp_args.items():
-        if k not in act_args:
-            # an omitted arg is fine only if the expected value is the default
-            spec = TOOLS.get(expected["tool"])
-            default = spec.defaults().get(k, object()) if spec else object()
-            if not values_equal(k, v, default):
+        if act_args.get(k) is None:
+            # an omitted arg is fine only if the expected value is what the tool uses by default
+            default = effective_default(expected["tool"], k, act_args)
+            if default is _NO_DEFAULT or not values_equal(k, v, default):
                 errs.append(f"missing_parameter:{k}")
         elif not values_equal(k, v, act_args[k]):
             errs.append(f"wrong_parameter:{k}")
-    spec = TOOLS.get(actual["tool"])
-    defaults = spec.defaults() if spec else {}
     for k, v in act_args.items():
         if k in exp_args or v is None:
             continue
-        if k in defaults and values_equal(k, defaults[k], v):
+        default = effective_default(actual["tool"], k, act_args)
+        if default is not _NO_DEFAULT and values_equal(k, default, v):
             continue
         errs.append(f"hallucinated_parameter:{k}")
     return errs
@@ -215,6 +231,8 @@ def score_case(case: dict, res: RunResult) -> CaseScore:
     )
     if res.error:
         s.errors.append("system_error")
+    if res.plan_parse_error:
+        s.errors.append("plan_parse_error")
 
     if case["expect"] == "execute":
         plans = case["plans"]
@@ -237,6 +255,8 @@ def score_case(case: dict, res: RunResult) -> CaseScore:
             s.errors.append("acted_on_invalid_request")
         s.task_success = not executed
         s.unsafe_execution = bool(executed)
+        if executed:
+            s.errors.append("partial_side_effects")
         if s.blocked_by_validator:
             s.validator_true_catch = True
 
