@@ -36,6 +36,70 @@ exported by the time training fails, leaving partial side effects. The planned s
 step 1 runs. Cases flagged `late` measure this explicitly. The most harmful variant is destructive:
 *"Cancel train-0042 and retrain drones with yolov8n"* leaves the baseline with a cancelled job and no new one.
 
+## Final results
+
+Runs: `results/compare-20261114-013951` (primary) and `results/ablations-20261114-014924` (ablations). Both use
+`gpt-4o-mini`, temperature 0, seed 42, all 236 English cases × 3 repeats (708 runs per profile), and 12 parallel
+workers. Neither run contains API failures. Full tables, including per-category and error breakdowns, are in each
+run's `comparison.md`.
+
+### Baseline vs planned
+
+| Metric | baseline | planned | Δ planned − baseline [95% CI] |
+|---|---|---|---|
+| Task completion, all requests | 81.5% | **95.2%** | +13.7 pp [+7.9, +19.5] |
+| Task completion, valid requests | **97.4%** | 92.0% | −5.4 pp [−9.9, −1.2] |
+| Correctly executed nothing on should-abstain requests | 57.9% | **100.0%** | +42.1 pp [+32.3, +51.6] |
+| Partial execution on late-failure workflows | 62.6% | **0.0%** | −62.6 pp [−77.8, −46.5] |
+| Failed requests that left side effects | 18.1% | **0.1%** | −17.9 pp [−22.7, −13.0] |
+| Plans blocked by the validator (false blocks) | – | 3 (0) | |
+| Mean latency / tokens per request | 3.6 s / 7531 | **1.9 s / 3524** | about half |
+
+By suite (task completion, all requests): **core** 87.3% → 94.6% (+7.3 pp); **extended** 56.1% → 97.7%
+(+41.7 pp). On valid requests: core 98.7% → 91.7%, extended 88.2% → 94.1%.
+
+### Ablations
+
+| Profile | all | valid | should-abstain | late-failure partial | false abstention | tokens |
+|---|---|---|---|---|---|---|
+| baseline | 81.5 | 97.4 | 57.9 | 62.6 | 0.7 | 7530 |
+| baseline_step_guard | 88.6 | 97.9 | 74.7 | 62.6 | 0.5 | 7294 |
+| planned_no_validator | 84.0 | 91.7 | 72.6 | 41.4 | 7.1 | 3051 |
+| planned_minimal | 87.3 | 90.5 | 82.5 | 16.2 | 8.3 | 3051 |
+| planned_no_grounding | 87.8 | 92.4 | 81.0 | 19.2 | 6.9 | 3248 |
+| planned_no_repair | 94.8 | 91.2 | 100.0 | 0.0 | 6.6 | 3052 |
+| **planned** | 95.2 | 92.0 | 100.0 | 0.0 | 7.8 | 3523 |
+| planned_auto_prereq | 96.5 | 94.1 | 100.0 | 0.0 | 5.4 | 3511 |
+| planned_strict_schema | 97.0 | 95.0 | 100.0 | 0.0 | 5.0 | 4010 |
+
+All values except tokens are percentages.
+
+### What the results show
+- **Planned is significantly safer and better overall, at about half the cost.** It executed nothing on invalid
+  requests and left no partial side effects.
+- **It is worse on valid requests (−5.4 pp).** The cause is the planner refusing valid requests on its own (33
+  false abstentions against 3 for baseline), not the validator, which wrongly blocked no correct plan. The weakest
+  category is implicit prerequisites (71.4%, against 97.6% for baseline): the planner often omits `export_yolo`
+  before training an annotated dataset.
+- **Whole-plan control, not validation alone, is what prevents partial execution.** `baseline_step_guard`
+  applies the same validator and grounding checks to each call before it runs, and still leaves partial side
+  effects in 62.6% of late failures, exactly like the baseline.
+- **Request grounding is the largest single contribution.** Without it, planned executes 19% of the requests it
+  should refuse.
+- **Repair adds little** (+0.4 pp over `planned_no_repair`).
+- **Strict schema and auto-prerequisites score highest** while staying fully safe, mainly by fixing implicit
+  prerequisites. They were identified after seeing these results, so they are reported as ablation findings,
+  not as the primary method.
+
+### Reporting notes
+- Use the **core suite** as the headline: the extended suite was designed around planning's strengths.
+- One grounding bug was fixed before these runs: a SAM3 prompt derived from the dataset name (e.g. "cat" for
+  "Segment the cats dataset") had passed the check. Earlier runs, kept locally in the git-ignored
+  `results/archive/`, show the effect.
+- Latency was measured with 12 parallel workers, under the same conditions for both strategies.
+- Only one model (`gpt-4o-mini`) and simulated tools were tested. The Ukrainian/mixed set (`cases_uk.jsonl`)
+  has not been run for these results.
+
 ### Plan format
 
 ```json
@@ -102,7 +166,7 @@ Shared settings (identical for every profile):
 | `LLM_TIMEOUT_S`, `LLM_MAX_RETRIES` | `60`, `3` | request timeout and retries |
 | `BASELINE_MAX_ROUNDS` | `8` | max LLM↔tool round trips in the baseline loop |
 | `TOOL_ARG_VALIDATION` | `true` | tools check argument types and ranges at call time, as typical tool frameworks do |
-| `BENCH_CONCURRENCY` | `1` | parallel cases (keep at 1 when measuring latency) |
+| `BENCH_CONCURRENCY` | `1` | parallel case runs; `cvorch bench --concurrency N` overrides it. Latency is then measured under load, the same for every profile |
 
 ## Tool contracts (`src/cvorch/tools.py`)
 
@@ -174,15 +238,25 @@ digits/percentages/English number words), no LLM.
 uv run cvorch run --profile planned  'Segment cats for "cat", export to YOLO and train yolo11n for 50 epochs'
 uv run cvorch run --profile baseline 'Export warehouse to YOLO and train with batch size 0'
 
-scripts/compare.sh --repeats 3       # primary experiment: baseline vs planned + comparison.md
-scripts/ablations.sh                 # planned vs its ablations and the step-guarded baseline
+scripts/compare.sh --repeats 3 --concurrency 12    # primary experiment: baseline vs planned + comparison.md
+scripts/ablations.sh --repeats 3 --concurrency 12  # planned vs its ablations and the step-guarded baseline
 
 uv run cvorch bench --profile planned --category late_failure --repeats 3
-uv run cvorch bench --profile baseline --cases benchmark/cases_uk.jsonl     # Ukrainian paraphrases
-uv run cvorch compare results/compare-*/baseline results/compare-*/planned --out comparison.md
+uv run cvorch bench --profile baseline --cases benchmark/cases_uk.jsonl     # Ukrainian / mixed cases
+uv run cvorch bench --profile planned --retry-errors results/<run>/planned  # re-run only API failures
+uv run cvorch compare results/<run>/baseline results/<run>/planned --out comparison.md
 
 uv run cvorch ui                     # Streamlit demo
 ```
+
+Arguments after the script name are passed to every `cvorch bench` call. With 12 workers the primary comparison
+takes about 5 minutes and uses about 7.7M tokens of `gpt-4o-mini`; the ablation script runs all 8 planned and
+ablation profiles (about 19M tokens without the duplicate `planned`). Run profiles one after another, not in
+parallel, so the shared tokens-per-minute limit is not exceeded.
+
+Runs that end in an API failure (network, rate limit, no credits) execute nothing, which would score as success
+on should-abstain requests; `cvorch compare` warns about them and `--retry-errors` re-runs only those runs in
+place. Hitting the baseline's round limit (`max_rounds_exceeded`) is a genuine outcome and is not retried.
 
 ## Benchmark (`benchmark/`)
 
@@ -258,8 +332,11 @@ counts, settings and fingerprints, plus the same metrics grouped by category, su
 - the absolute difference from the first run, with a **95% bootstrap CI over cases** (paired by case id, and
   repeats averaged per case first).
 
-It contains per-category task completion, error counts and validator issue counts. `--repeats N` reruns every
-case N times on a fresh workspace.
+It contains task completion by suite, language and category, error counts and validator issue counts.
+`--repeats N` reruns every case N times on a fresh workspace.
+
+Only the final runs are versioned (`results/compare-20261114-013951`, `results/ablations-20261114-014924`); new
+runs and `results/archive/` (older or incomplete runs) are git-ignored.
 
 Interpretation caveats:
 - The planned strategy is expected to win on safety (partial side effects, execution on invalid requests). It
@@ -282,9 +359,11 @@ Interpretation caveats:
 - **Baseline:** the UI shows each tool call with its arguments and result, and the resulting workspace changes.
 - **Jobs:** the workspace panel lists training jobs with the GPU quota; every queued or running job has a
   **Cancel** button that stops it directly (no LLM involved), through the same `cancel_job` tool.
-- **Benchmark results tab:** loads `comparison.md` and `summary.json` files from `results/`.
+- **Benchmark results tab:** loads `comparison.md` and `summary.json` files from `results/`, skipping
+  `results/archive/`.
 
-The UI uses the same orchestrator classes as the CLI and the benchmark.
+Start it with `uv run cvorch ui` and open http://localhost:8501. Requests call the real API; **Reset workspace**
+restores the initial state. The UI uses the same orchestrator classes as the CLI and the benchmark.
 
 ## Layout
 
@@ -304,5 +383,6 @@ src/cvorch/
   ui/app.py         Streamlit demo
 benchmark/          build_cases.py, cases.jsonl, cases_uk.jsonl
 scripts/            compare.sh, ablations.sh
-tests/              unit, benchmark-consistency, oracle, adapter and UI tests (no API calls)
+results/            final runs: compare-20261114-013951, ablations-20261114-014924
+tests/              unit, benchmark-consistency, oracle, adapter and UI tests (422, no API calls)
 ```
