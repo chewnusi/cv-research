@@ -1,0 +1,1545 @@
+{
+  "overall": {
+    "n": 708,
+    "tool_selection_accuracy": {
+      "value": 0.9504,
+      "n": 423
+    },
+    "parameter_accuracy_given_tools": {
+      "value": 1.0,
+      "n": 402
+    },
+    "plan_exact_accuracy": {
+      "value": 0.9504,
+      "n": 423
+    },
+    "abstention_accuracy": {
+      "value": 0.9895,
+      "n": 285
+    },
+    "false_abstention_rate": {
+      "value": 0.0496,
+      "n": 423
+    },
+    "task_completion_rate": {
+      "value": 0.9703,
+      "n": 708
+    },
+    "task_completion_positive": {
+      "value": 0.9504,
+      "n": 423
+    },
+    "task_completion_negative": {
+      "value": 1.0,
+      "n": 285
+    },
+    "runtime_error_case_rate": {
+      "value": 0.0,
+      "n": 708
+    },
+    "unsafe_execution_rate": {
+      "value": 0.0,
+      "n": 285
+    },
+    "late_failure_side_effect_rate": {
+      "value": 0.0,
+      "n": 99
+    },
+    "side_effects_on_failure_rate": {
+      "value": 0.0,
+      "n": 708
+    },
+    "validator_blocked": 3,
+    "validator_true_catches": 3,
+    "validator_false_blocks": 0,
+    "latency_mean_s": 3.1202,
+    "latency_median_s": 2.1112,
+    "latency_p95_s": 7.9448,
+    "llm_latency_mean_s": 3.1192,
+    "llm_calls_mean": 1.1653,
+    "input_tokens_mean": 3930.6667,
+    "output_tokens_mean": 80.2542,
+    "tokens_mean": 4010.9209,
+    "plan_parse_errors": 0,
+    "system_errors": 0
+  },
+  "ci95": {
+    "task_completion_rate": [
+      0.9506,
+      0.9859
+    ],
+    "task_completion_positive": [
+      0.9196,
+      0.9764
+    ],
+    "task_completion_negative": [
+      1.0,
+      1.0
+    ],
+    "tool_selection_accuracy": [
+      0.9196,
+      0.9764
+    ],
+    "plan_exact_accuracy": [
+      0.9196,
+      0.9764
+    ],
+    "abstention_accuracy": [
+      0.9684,
+      1.0
+    ],
+    "false_abstention_rate": [
+      0.0236,
+      0.0804
+    ],
+    "unsafe_execution_rate": [
+      0.0,
+      0.0
+    ],
+    "late_failure_side_effect_rate": [
+      0.0,
+      0.0
+    ],
+    "side_effects_on_failure_rate": [
+      0.0,
+      0.0
+    ]
+  },
+  "errors": {
+    "false_abstention": 21,
+    "acted_on_invalid_request": 3
+  },
+  "validator_issues": {
+    "request_value_not_used": 3
+  },
+  "by_category": {
+    "ambiguous": {
+      "n": 36,
+      "tool_selection_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "parameter_accuracy_given_tools": {
+        "value": null,
+        "n": 0
+      },
+      "plan_exact_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "abstention_accuracy": {
+        "value": 1.0,
+        "n": 36
+      },
+      "false_abstention_rate": {
+        "value": null,
+        "n": 0
+      },
+      "task_completion_rate": {
+        "value": 1.0,
+        "n": 36
+      },
+      "task_completion_positive": {
+        "value": null,
+        "n": 0
+      },
+      "task_completion_negative": {
+        "value": 1.0,
+        "n": 36
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 36
+      },
+      "unsafe_execution_rate": {
+        "value": 0.0,
+        "n": 36
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 36
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 3.2582,
+      "latency_median_s": 2.5063,
+      "latency_p95_s": 8.1115,
+      "llm_latency_mean_s": 3.2576,
+      "llm_calls_mean": 1.5,
+      "input_tokens_mean": 5122.5556,
+      "output_tokens_mean": 76.6944,
+      "tokens_mean": 5199.25,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {}
+    },
+    "cancel_job": {
+      "n": 27,
+      "tool_selection_accuracy": {
+        "value": 1.0,
+        "n": 15
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 15
+      },
+      "plan_exact_accuracy": {
+        "value": 1.0,
+        "n": 15
+      },
+      "abstention_accuracy": {
+        "value": 0.75,
+        "n": 12
+      },
+      "false_abstention_rate": {
+        "value": 0.0,
+        "n": 15
+      },
+      "task_completion_rate": {
+        "value": 1.0,
+        "n": 27
+      },
+      "task_completion_positive": {
+        "value": 1.0,
+        "n": 15
+      },
+      "task_completion_negative": {
+        "value": 1.0,
+        "n": 12
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 27
+      },
+      "unsafe_execution_rate": {
+        "value": 0.0,
+        "n": 12
+      },
+      "late_failure_side_effect_rate": {
+        "value": 0.0,
+        "n": 3
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 27
+      },
+      "validator_blocked": 3,
+      "validator_true_catches": 3,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 2.8359,
+      "latency_median_s": 2.8091,
+      "latency_p95_s": 4.5893,
+      "llm_latency_mean_s": 2.8338,
+      "llm_calls_mean": 1.3333,
+      "input_tokens_mean": 4516.2963,
+      "output_tokens_mean": 75.037,
+      "tokens_mean": 4591.3333,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {
+        "acted_on_invalid_request": 3
+      }
+    },
+    "complex_multi_step": {
+      "n": 42,
+      "tool_selection_accuracy": {
+        "value": 0.9762,
+        "n": 42
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 41
+      },
+      "plan_exact_accuracy": {
+        "value": 0.9762,
+        "n": 42
+      },
+      "abstention_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "false_abstention_rate": {
+        "value": 0.0238,
+        "n": 42
+      },
+      "task_completion_rate": {
+        "value": 0.9762,
+        "n": 42
+      },
+      "task_completion_positive": {
+        "value": 0.9762,
+        "n": 42
+      },
+      "task_completion_negative": {
+        "value": null,
+        "n": 0
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 42
+      },
+      "unsafe_execution_rate": {
+        "value": null,
+        "n": 0
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 42
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 5.854,
+      "latency_median_s": 3.9079,
+      "latency_p95_s": 23.5571,
+      "llm_latency_mean_s": 5.8531,
+      "llm_calls_mean": 1,
+      "input_tokens_mean": 3351.5714,
+      "output_tokens_mean": 156.9048,
+      "tokens_mean": 3508.4762,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {
+        "false_abstention": 1
+      }
+    },
+    "gpu_quota": {
+      "n": 21,
+      "tool_selection_accuracy": {
+        "value": 1.0,
+        "n": 12
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 12
+      },
+      "plan_exact_accuracy": {
+        "value": 1.0,
+        "n": 12
+      },
+      "abstention_accuracy": {
+        "value": 1.0,
+        "n": 9
+      },
+      "false_abstention_rate": {
+        "value": 0.0,
+        "n": 12
+      },
+      "task_completion_rate": {
+        "value": 1.0,
+        "n": 21
+      },
+      "task_completion_positive": {
+        "value": 1.0,
+        "n": 12
+      },
+      "task_completion_negative": {
+        "value": 1.0,
+        "n": 9
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 21
+      },
+      "unsafe_execution_rate": {
+        "value": 0.0,
+        "n": 9
+      },
+      "late_failure_side_effect_rate": {
+        "value": 0.0,
+        "n": 9
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 21
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 5.762,
+      "latency_median_s": 4.3462,
+      "latency_p95_s": 18.3559,
+      "llm_latency_mean_s": 5.7611,
+      "llm_calls_mean": 1.4286,
+      "input_tokens_mean": 4908.8571,
+      "output_tokens_mean": 168.0952,
+      "tokens_mean": 5076.9524,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {}
+    },
+    "implicit_prerequisites": {
+      "n": 42,
+      "tool_selection_accuracy": {
+        "value": 0.9286,
+        "n": 42
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 39
+      },
+      "plan_exact_accuracy": {
+        "value": 0.9286,
+        "n": 42
+      },
+      "abstention_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "false_abstention_rate": {
+        "value": 0.0714,
+        "n": 42
+      },
+      "task_completion_rate": {
+        "value": 0.9286,
+        "n": 42
+      },
+      "task_completion_positive": {
+        "value": 0.9286,
+        "n": 42
+      },
+      "task_completion_negative": {
+        "value": null,
+        "n": 0
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 42
+      },
+      "unsafe_execution_rate": {
+        "value": null,
+        "n": 0
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 42
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 3.2715,
+      "latency_median_s": 2.4179,
+      "latency_p95_s": 6.264,
+      "llm_latency_mean_s": 3.2697,
+      "llm_calls_mean": 1.0714,
+      "input_tokens_mean": 3594.8571,
+      "output_tokens_mean": 117.6667,
+      "tokens_mean": 3712.5238,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {
+        "false_abstention": 3
+      }
+    },
+    "inexact_reference": {
+      "n": 48,
+      "tool_selection_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "parameter_accuracy_given_tools": {
+        "value": null,
+        "n": 0
+      },
+      "plan_exact_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "abstention_accuracy": {
+        "value": 1.0,
+        "n": 48
+      },
+      "false_abstention_rate": {
+        "value": null,
+        "n": 0
+      },
+      "task_completion_rate": {
+        "value": 1.0,
+        "n": 48
+      },
+      "task_completion_positive": {
+        "value": null,
+        "n": 0
+      },
+      "task_completion_negative": {
+        "value": 1.0,
+        "n": 48
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 48
+      },
+      "unsafe_execution_rate": {
+        "value": 0.0,
+        "n": 48
+      },
+      "late_failure_side_effect_rate": {
+        "value": 0.0,
+        "n": 3
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 48
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 4.3375,
+      "latency_median_s": 3.2914,
+      "latency_p95_s": 10.5205,
+      "llm_latency_mean_s": 4.3367,
+      "llm_calls_mean": 1.9167,
+      "input_tokens_mean": 6578.0417,
+      "output_tokens_mean": 89.4375,
+      "tokens_mean": 6667.4792,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {}
+    },
+    "invalid_parameter": {
+      "n": 36,
+      "tool_selection_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "parameter_accuracy_given_tools": {
+        "value": null,
+        "n": 0
+      },
+      "plan_exact_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "abstention_accuracy": {
+        "value": 1.0,
+        "n": 36
+      },
+      "false_abstention_rate": {
+        "value": null,
+        "n": 0
+      },
+      "task_completion_rate": {
+        "value": 1.0,
+        "n": 36
+      },
+      "task_completion_positive": {
+        "value": null,
+        "n": 0
+      },
+      "task_completion_negative": {
+        "value": 1.0,
+        "n": 36
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 36
+      },
+      "unsafe_execution_rate": {
+        "value": 0.0,
+        "n": 36
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 36
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 1.9713,
+      "latency_median_s": 1.2667,
+      "latency_p95_s": 5.8284,
+      "llm_latency_mean_s": 1.9696,
+      "llm_calls_mean": 1.1111,
+      "input_tokens_mean": 3728.8333,
+      "output_tokens_mean": 30.8056,
+      "tokens_mean": 3759.6389,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {}
+    },
+    "job_status": {
+      "n": 30,
+      "tool_selection_accuracy": {
+        "value": 1.0,
+        "n": 30
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 30
+      },
+      "plan_exact_accuracy": {
+        "value": 1.0,
+        "n": 30
+      },
+      "abstention_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "false_abstention_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "task_completion_rate": {
+        "value": 1.0,
+        "n": 30
+      },
+      "task_completion_positive": {
+        "value": 1.0,
+        "n": 30
+      },
+      "task_completion_negative": {
+        "value": null,
+        "n": 0
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "unsafe_execution_rate": {
+        "value": null,
+        "n": 0
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 2.2968,
+      "latency_median_s": 1.7921,
+      "latency_p95_s": 6.0668,
+      "llm_latency_mean_s": 2.2961,
+      "llm_calls_mean": 1,
+      "input_tokens_mean": 3338.5,
+      "output_tokens_mean": 54.6667,
+      "tokens_mean": 3393.1667,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {}
+    },
+    "labeling": {
+      "n": 30,
+      "tool_selection_accuracy": {
+        "value": 0.8667,
+        "n": 30
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 26
+      },
+      "plan_exact_accuracy": {
+        "value": 0.8667,
+        "n": 30
+      },
+      "abstention_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "false_abstention_rate": {
+        "value": 0.1333,
+        "n": 30
+      },
+      "task_completion_rate": {
+        "value": 0.8667,
+        "n": 30
+      },
+      "task_completion_positive": {
+        "value": 0.8667,
+        "n": 30
+      },
+      "task_completion_negative": {
+        "value": null,
+        "n": 0
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "unsafe_execution_rate": {
+        "value": null,
+        "n": 0
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 2.1561,
+      "latency_median_s": 1.8223,
+      "latency_p95_s": 4.8423,
+      "llm_latency_mean_s": 2.1553,
+      "llm_calls_mean": 1,
+      "input_tokens_mean": 3342.5,
+      "output_tokens_mean": 62.5,
+      "tokens_mean": 3405,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {
+        "false_abstention": 4
+      }
+    },
+    "late_failure": {
+      "n": 84,
+      "tool_selection_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "parameter_accuracy_given_tools": {
+        "value": null,
+        "n": 0
+      },
+      "plan_exact_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "abstention_accuracy": {
+        "value": 1.0,
+        "n": 84
+      },
+      "false_abstention_rate": {
+        "value": null,
+        "n": 0
+      },
+      "task_completion_rate": {
+        "value": 1.0,
+        "n": 84
+      },
+      "task_completion_positive": {
+        "value": null,
+        "n": 0
+      },
+      "task_completion_negative": {
+        "value": 1.0,
+        "n": 84
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 84
+      },
+      "unsafe_execution_rate": {
+        "value": 0.0,
+        "n": 84
+      },
+      "late_failure_side_effect_rate": {
+        "value": 0.0,
+        "n": 84
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 84
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 2.9392,
+      "latency_median_s": 1.6515,
+      "latency_p95_s": 6.8325,
+      "llm_latency_mean_s": 2.9382,
+      "llm_calls_mean": 1.3214,
+      "input_tokens_mean": 4504.75,
+      "output_tokens_mean": 73.8929,
+      "tokens_mean": 4578.6429,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {}
+    },
+    "long_workflow": {
+      "n": 24,
+      "tool_selection_accuracy": {
+        "value": 0.875,
+        "n": 24
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 21
+      },
+      "plan_exact_accuracy": {
+        "value": 0.875,
+        "n": 24
+      },
+      "abstention_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "false_abstention_rate": {
+        "value": 0.125,
+        "n": 24
+      },
+      "task_completion_rate": {
+        "value": 0.875,
+        "n": 24
+      },
+      "task_completion_positive": {
+        "value": 0.875,
+        "n": 24
+      },
+      "task_completion_negative": {
+        "value": null,
+        "n": 0
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 24
+      },
+      "unsafe_execution_rate": {
+        "value": null,
+        "n": 0
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 24
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 5.7889,
+      "latency_median_s": 4.2863,
+      "latency_p95_s": 8.5006,
+      "llm_latency_mean_s": 5.788,
+      "llm_calls_mean": 1,
+      "input_tokens_mean": 3363.25,
+      "output_tokens_mean": 199.5833,
+      "tokens_mean": 3562.8333,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {
+        "false_abstention": 3
+      }
+    },
+    "missing_optional": {
+      "n": 30,
+      "tool_selection_accuracy": {
+        "value": 0.9667,
+        "n": 30
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 29
+      },
+      "plan_exact_accuracy": {
+        "value": 0.9667,
+        "n": 30
+      },
+      "abstention_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "false_abstention_rate": {
+        "value": 0.0333,
+        "n": 30
+      },
+      "task_completion_rate": {
+        "value": 0.9667,
+        "n": 30
+      },
+      "task_completion_positive": {
+        "value": 0.9667,
+        "n": 30
+      },
+      "task_completion_negative": {
+        "value": null,
+        "n": 0
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "unsafe_execution_rate": {
+        "value": null,
+        "n": 0
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 2.3835,
+      "latency_median_s": 1.6548,
+      "latency_p95_s": 7.0137,
+      "llm_latency_mean_s": 2.3828,
+      "llm_calls_mean": 1,
+      "input_tokens_mean": 3337.1,
+      "output_tokens_mean": 54.8333,
+      "tokens_mean": 3391.9333,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {
+        "false_abstention": 1
+      }
+    },
+    "multi_step": {
+      "n": 60,
+      "tool_selection_accuracy": {
+        "value": 0.9667,
+        "n": 60
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 58
+      },
+      "plan_exact_accuracy": {
+        "value": 0.9667,
+        "n": 60
+      },
+      "abstention_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "false_abstention_rate": {
+        "value": 0.0333,
+        "n": 60
+      },
+      "task_completion_rate": {
+        "value": 0.9667,
+        "n": 60
+      },
+      "task_completion_positive": {
+        "value": 0.9667,
+        "n": 60
+      },
+      "task_completion_negative": {
+        "value": null,
+        "n": 0
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 60
+      },
+      "unsafe_execution_rate": {
+        "value": null,
+        "n": 0
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 60
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 3.366,
+      "latency_median_s": 2.3921,
+      "latency_p95_s": 17.9005,
+      "llm_latency_mean_s": 3.3652,
+      "llm_calls_mean": 1,
+      "input_tokens_mean": 3342.85,
+      "output_tokens_mean": 83.25,
+      "tokens_mean": 3426.1,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {
+        "false_abstention": 2
+      }
+    },
+    "nonexistent_reference": {
+      "n": 30,
+      "tool_selection_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "parameter_accuracy_given_tools": {
+        "value": null,
+        "n": 0
+      },
+      "plan_exact_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "abstention_accuracy": {
+        "value": 1.0,
+        "n": 30
+      },
+      "false_abstention_rate": {
+        "value": null,
+        "n": 0
+      },
+      "task_completion_rate": {
+        "value": 1.0,
+        "n": 30
+      },
+      "task_completion_positive": {
+        "value": null,
+        "n": 0
+      },
+      "task_completion_negative": {
+        "value": 1.0,
+        "n": 30
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "unsafe_execution_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 1.7621,
+      "latency_median_s": 1.3475,
+      "latency_p95_s": 4.6819,
+      "llm_latency_mean_s": 1.7617,
+      "llm_calls_mean": 1,
+      "input_tokens_mean": 3335.2,
+      "output_tokens_mean": 32.8667,
+      "tokens_mean": 3368.0667,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {}
+    },
+    "paraphrase": {
+      "n": 45,
+      "tool_selection_accuracy": {
+        "value": 1.0,
+        "n": 45
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 45
+      },
+      "plan_exact_accuracy": {
+        "value": 1.0,
+        "n": 45
+      },
+      "abstention_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "false_abstention_rate": {
+        "value": 0.0,
+        "n": 45
+      },
+      "task_completion_rate": {
+        "value": 1.0,
+        "n": 45
+      },
+      "task_completion_positive": {
+        "value": 1.0,
+        "n": 45
+      },
+      "task_completion_negative": {
+        "value": null,
+        "n": 0
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 45
+      },
+      "unsafe_execution_rate": {
+        "value": null,
+        "n": 0
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 45
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 2.1538,
+      "latency_median_s": 1.7453,
+      "latency_p95_s": 2.9924,
+      "llm_latency_mean_s": 2.1522,
+      "llm_calls_mean": 1,
+      "input_tokens_mean": 3339.6667,
+      "output_tokens_mean": 63.8222,
+      "tokens_mean": 3403.4889,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {}
+    },
+    "single_tool": {
+      "n": 45,
+      "tool_selection_accuracy": {
+        "value": 0.9778,
+        "n": 45
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 44
+      },
+      "plan_exact_accuracy": {
+        "value": 0.9778,
+        "n": 45
+      },
+      "abstention_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "false_abstention_rate": {
+        "value": 0.0222,
+        "n": 45
+      },
+      "task_completion_rate": {
+        "value": 0.9778,
+        "n": 45
+      },
+      "task_completion_positive": {
+        "value": 0.9778,
+        "n": 45
+      },
+      "task_completion_negative": {
+        "value": null,
+        "n": 0
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 45
+      },
+      "unsafe_execution_rate": {
+        "value": null,
+        "n": 0
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 45
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 1.9914,
+      "latency_median_s": 1.7009,
+      "latency_p95_s": 2.2865,
+      "llm_latency_mean_s": 1.9908,
+      "llm_calls_mean": 1,
+      "input_tokens_mean": 3335.2667,
+      "output_tokens_mean": 50.6889,
+      "tokens_mean": 3385.9556,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {
+        "false_abstention": 1
+      }
+    },
+    "tool_with_params": {
+      "n": 48,
+      "tool_selection_accuracy": {
+        "value": 0.875,
+        "n": 48
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 42
+      },
+      "plan_exact_accuracy": {
+        "value": 0.875,
+        "n": 48
+      },
+      "abstention_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "false_abstention_rate": {
+        "value": 0.125,
+        "n": 48
+      },
+      "task_completion_rate": {
+        "value": 0.875,
+        "n": 48
+      },
+      "task_completion_positive": {
+        "value": 0.875,
+        "n": 48
+      },
+      "task_completion_negative": {
+        "value": null,
+        "n": 0
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 48
+      },
+      "unsafe_execution_rate": {
+        "value": null,
+        "n": 0
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 48
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 2.7657,
+      "latency_median_s": 1.9192,
+      "latency_p95_s": 3.6884,
+      "llm_latency_mean_s": 2.7649,
+      "llm_calls_mean": 1,
+      "input_tokens_mean": 3341.5,
+      "output_tokens_mean": 65.6042,
+      "tokens_mean": 3407.1042,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {
+        "false_abstention": 6
+      }
+    },
+    "unsupported": {
+      "n": 30,
+      "tool_selection_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "parameter_accuracy_given_tools": {
+        "value": null,
+        "n": 0
+      },
+      "plan_exact_accuracy": {
+        "value": null,
+        "n": 0
+      },
+      "abstention_accuracy": {
+        "value": 1.0,
+        "n": 30
+      },
+      "false_abstention_rate": {
+        "value": null,
+        "n": 0
+      },
+      "task_completion_rate": {
+        "value": 1.0,
+        "n": 30
+      },
+      "task_completion_positive": {
+        "value": null,
+        "n": 0
+      },
+      "task_completion_negative": {
+        "value": 1.0,
+        "n": 30
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "unsafe_execution_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "late_failure_side_effect_rate": {
+        "value": null,
+        "n": 0
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 30
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 2.2252,
+      "latency_median_s": 1.3984,
+      "latency_p95_s": 7.6264,
+      "llm_latency_mean_s": 2.2248,
+      "llm_calls_mean": 1.1,
+      "input_tokens_mean": 3689.6333,
+      "output_tokens_mean": 37.6333,
+      "tokens_mean": 3727.2667,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {}
+    }
+  },
+  "by_suite": {
+    "core": {
+      "n": 576,
+      "tool_selection_accuracy": {
+        "value": 0.9516,
+        "n": 372
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 354
+      },
+      "plan_exact_accuracy": {
+        "value": 0.9516,
+        "n": 372
+      },
+      "abstention_accuracy": {
+        "value": 1.0,
+        "n": 204
+      },
+      "false_abstention_rate": {
+        "value": 0.0484,
+        "n": 372
+      },
+      "task_completion_rate": {
+        "value": 0.9688,
+        "n": 576
+      },
+      "task_completion_positive": {
+        "value": 0.9516,
+        "n": 372
+      },
+      "task_completion_negative": {
+        "value": 1.0,
+        "n": 204
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 576
+      },
+      "unsafe_execution_rate": {
+        "value": 0.0,
+        "n": 204
+      },
+      "late_failure_side_effect_rate": {
+        "value": 0.0,
+        "n": 63
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 576
+      },
+      "validator_blocked": 0,
+      "validator_true_catches": 0,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 2.8394,
+      "latency_median_s": 1.9238,
+      "latency_p95_s": 6.7877,
+      "llm_latency_mean_s": 2.8385,
+      "llm_calls_mean": 1.0955,
+      "input_tokens_mean": 3681.4531,
+      "output_tokens_mean": 71.2951,
+      "tokens_mean": 3752.7483,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {
+        "false_abstention": 18
+      }
+    },
+    "extended": {
+      "n": 132,
+      "tool_selection_accuracy": {
+        "value": 0.9412,
+        "n": 51
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 48
+      },
+      "plan_exact_accuracy": {
+        "value": 0.9412,
+        "n": 51
+      },
+      "abstention_accuracy": {
+        "value": 0.963,
+        "n": 81
+      },
+      "false_abstention_rate": {
+        "value": 0.0588,
+        "n": 51
+      },
+      "task_completion_rate": {
+        "value": 0.9773,
+        "n": 132
+      },
+      "task_completion_positive": {
+        "value": 0.9412,
+        "n": 51
+      },
+      "task_completion_negative": {
+        "value": 1.0,
+        "n": 81
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 132
+      },
+      "unsafe_execution_rate": {
+        "value": 0.0,
+        "n": 81
+      },
+      "late_failure_side_effect_rate": {
+        "value": 0.0,
+        "n": 36
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 132
+      },
+      "validator_blocked": 3,
+      "validator_true_catches": 3,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 4.3456,
+      "latency_median_s": 3.5492,
+      "latency_p95_s": 8.8067,
+      "llm_latency_mean_s": 4.3442,
+      "llm_calls_mean": 1.4697,
+      "input_tokens_mean": 5018.1439,
+      "output_tokens_mean": 119.3485,
+      "tokens_mean": 5137.4924,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {
+        "acted_on_invalid_request": 3,
+        "false_abstention": 3
+      }
+    }
+  },
+  "by_language": {
+    "en": {
+      "n": 708,
+      "tool_selection_accuracy": {
+        "value": 0.9504,
+        "n": 423
+      },
+      "parameter_accuracy_given_tools": {
+        "value": 1.0,
+        "n": 402
+      },
+      "plan_exact_accuracy": {
+        "value": 0.9504,
+        "n": 423
+      },
+      "abstention_accuracy": {
+        "value": 0.9895,
+        "n": 285
+      },
+      "false_abstention_rate": {
+        "value": 0.0496,
+        "n": 423
+      },
+      "task_completion_rate": {
+        "value": 0.9703,
+        "n": 708
+      },
+      "task_completion_positive": {
+        "value": 0.9504,
+        "n": 423
+      },
+      "task_completion_negative": {
+        "value": 1.0,
+        "n": 285
+      },
+      "runtime_error_case_rate": {
+        "value": 0.0,
+        "n": 708
+      },
+      "unsafe_execution_rate": {
+        "value": 0.0,
+        "n": 285
+      },
+      "late_failure_side_effect_rate": {
+        "value": 0.0,
+        "n": 99
+      },
+      "side_effects_on_failure_rate": {
+        "value": 0.0,
+        "n": 708
+      },
+      "validator_blocked": 3,
+      "validator_true_catches": 3,
+      "validator_false_blocks": 0,
+      "latency_mean_s": 3.1202,
+      "latency_median_s": 2.1112,
+      "latency_p95_s": 7.9448,
+      "llm_latency_mean_s": 3.1192,
+      "llm_calls_mean": 1.1653,
+      "input_tokens_mean": 3930.6667,
+      "output_tokens_mean": 80.2542,
+      "tokens_mean": 4010.9209,
+      "plan_parse_errors": 0,
+      "system_errors": 0,
+      "errors": {
+        "false_abstention": 21,
+        "acted_on_invalid_request": 3
+      }
+    }
+  },
+  "meta": {
+    "profile": "planned_strict_schema",
+    "settings": {
+      "profile": "planned_strict_schema",
+      "mode": "planned",
+      "planner_validate": true,
+      "planner_grounding": true,
+      "planner_repair_attempts": 1,
+      "planner_auto_prerequisites": false,
+      "planner_structured_output": "strict_json_schema",
+      "baseline_step_guard": false,
+      "llm_model": "gpt-4o-mini",
+      "llm_base_url": "https://api.openai.com/v1",
+      "llm_temperature": 0.0,
+      "llm_seed": 42,
+      "llm_timeout_s": 60.0,
+      "llm_max_retries": 3,
+      "baseline_max_rounds": 8,
+      "tool_arg_validation": true,
+      "bench_concurrency": 12
+    },
+    "cases_path": "/home/chewnusi/cv-research/benchmark/cases.jsonl",
+    "num_cases": 236,
+    "repeats": 3,
+    "fingerprints": {
+      "cases": "715e697b1ea6d645",
+      "initial_workspace": "79880edb6b7db3a7",
+      "tool_contracts": "5b6c287176b22245",
+      "shared_prompt": "9d2e3f75625da274"
+    },
+    "wall_time_s": 188.21,
+    "finished_at": "2026-11-14T02:02:26"
+  }
+}

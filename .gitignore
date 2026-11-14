@@ -3,5 +3,8 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-results/
+results/*
+# final experiment runs are versioned; older/incomplete runs stay in results/archive (ignored)
+!results/compare-20261114-013951/
+!results/ablations-20261114-014924/
 *.egg-info/
