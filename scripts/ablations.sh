@@ -6,7 +6,8 @@ cd "$(dirname "$0")/.."
 
 stamp=$(date +%Y%m%d-%H%M%S)
 root="results/ablations-$stamp"
-profiles=(planned planned_no_validator planned_strict_schema planned_auto_prereq planned_repair)
+profiles=(planned planned_no_repair planned_no_grounding planned_minimal planned_no_validator planned_strict_schema
+          planned_auto_prereq baseline_step_guard)
 
 dirs=()
 for p in "${profiles[@]}"; do

@@ -79,5 +79,5 @@ def test_end_to_end_with_langchain_adapter(ws):
     assert res.input_tokens == 22
 
     plan = {"status": "ok", "message": "", "steps": [{"tool": "get_job_status", "arguments": {"job_id": "train-0041"}}]}
-    res = PlannedOrchestrator(_client([{"content": json.dumps(plan)}], []), make_settings()).run("status", ws)
+    res = PlannedOrchestrator(_client([{"content": json.dumps(plan)}], []), make_settings()).run("status of train-0041", ws)
     assert [c.tool for c in res.executed] == ["get_job_status"]

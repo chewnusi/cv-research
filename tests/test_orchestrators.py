@@ -9,12 +9,16 @@ SEG = ("segment_dataset", {"dataset": "cats", "text_prompt": "cat"})
 EXP = ("export_yolo", {"dataset": "cats"})
 TRN = ("train_yolo", {"dataset": "cats", "model": "yolo11n", "epochs": 50})
 BAD_TRN = ("train_yolo", {"dataset": "cats", "epochs": 0})
+REQ = 'Segment cats for "cat", export them to YOLO and train yolo11n for 50 epochs.'
+BAD_REQ = 'Segment cats for "cat", export them to YOLO and train for 0 epochs.'
 
 
 def test_profile_selects_orchestrator():
     llm = ScriptedClient([])
     assert isinstance(make_orchestrator(llm, make_settings("baseline")), BaselineOrchestrator)
-    for p in ("planned", "planned_no_validator", "planned_strict_schema", "planned_auto_prereq", "planned_repair"):
+    assert isinstance(make_orchestrator(llm, make_settings("baseline_step_guard")), BaselineOrchestrator)
+    for p in ("planned", "planned_no_repair", "planned_no_grounding", "planned_minimal", "planned_no_validator",
+              "planned_strict_schema", "planned_auto_prereq"):
         assert isinstance(make_orchestrator(llm, make_settings(p)), PlannedOrchestrator)
 
 
@@ -68,29 +72,29 @@ def test_baseline_max_rounds(ws):
 
 def test_planned_executes_valid_plan(ws):
     llm = ScriptedClient([plan_turn("ok", [SEG, EXP, TRN])])
-    res = PlannedOrchestrator(llm, make_settings()).run("...", ws)
+    res = PlannedOrchestrator(llm, make_settings()).run(REQ, ws)
     assert [c.tool for c in res.executed] == ["segment_dataset", "export_yolo", "train_yolo"]
     assert not res.blocked_by_validator and res.llm_calls == 1
 
 
 def test_planned_blocks_late_failure_before_any_execution(ws):
-    llm = ScriptedClient([plan_turn("ok", [SEG, EXP, BAD_TRN])])
-    res = PlannedOrchestrator(llm, make_settings()).run("...", ws)
+    llm = ScriptedClient([plan_turn("ok", [SEG, EXP, BAD_TRN])] * 2)
+    res = PlannedOrchestrator(llm, make_settings()).run(BAD_REQ, ws)
     assert res.blocked_by_validator and res.calls == []
-    assert [i["step"] for i in res.validation_issues] == [3]
+    assert {i["step"] for i in res.validation_issues} == {3}
     assert ws.datasets["cats"].state == "raw"
 
 
 def test_planned_blocks_unsupported_final_model(ws):
-    llm = ScriptedClient([plan_turn("ok", [SEG, EXP, ("train_yolo", {"dataset": "cats", "model": "yolo11n-seg"})])])
-    res = PlannedOrchestrator(llm, make_settings()).run("...", ws)
+    llm = ScriptedClient([plan_turn("ok", [SEG, EXP, ("train_yolo", {"dataset": "cats", "model": "yolo11n-seg"})])] * 2)
+    res = PlannedOrchestrator(llm, make_settings()).run('Segment cats for "cat", export, train yolo11n-seg.', ws)
     assert res.blocked_by_validator and res.calls == [] and ws.datasets["cats"].state == "raw"
 
 
 def test_prepare_never_executes(ws):
     llm = ScriptedClient([plan_turn("ok", [SEG, EXP])])
     orch = PlannedOrchestrator(llm, make_settings())
-    res = orch.prepare("...", ws)
+    res = orch.prepare('Segment cats for "cat" and export them to YOLO.', ws)
     assert res.executable and res.calls == [] and ws.datasets["cats"].state == "raw"
     orch.execute(res, ws)
     assert ws.datasets["cats"].state == "yolo"
@@ -99,9 +103,9 @@ def test_prepare_never_executes(ws):
 def test_execute_revalidates_against_current_workspace(ws):
     llm = ScriptedClient([plan_turn("ok", [("train_yolo", {"dataset": "parking"})])])
     orch = PlannedOrchestrator(llm, make_settings())
-    res = orch.prepare("...", ws)
+    res = orch.prepare("Train on parking.", ws)
     assert res.executable
-    del ws.datasets["parking"]  # the workspace changed between planning and confirmation
+    ws.datasets["parking"].state = "raw"  # the workspace changed between planning and confirmation
     orch.execute(res, ws)
     assert res.blocked_by_validator and res.calls == []
 
@@ -115,27 +119,88 @@ def test_planned_abstains(ws):
 
 def test_planned_without_repair_makes_one_llm_call(ws):
     llm = ScriptedClient([plan_turn("ok", [BAD_TRN])])
-    res = PlannedOrchestrator(llm, make_settings()).run("...", ws)
+    res = PlannedOrchestrator(llm, make_settings("planned_no_repair")).run(BAD_REQ, ws)
     assert res.llm_calls == 1 and res.blocked_by_validator
 
 
-def test_planned_repair_ablation(ws):
-    llm = ScriptedClient([plan_turn("ok", [EXP]), plan_turn("ok", [SEG, EXP])])
-    res = PlannedOrchestrator(llm, make_settings("planned_repair")).run("...", ws)
+def test_planned_repair_adds_missing_prerequisite(ws):
+    llm = ScriptedClient([plan_turn("ok", [("train_yolo", {"dataset": "warehouse"})]),
+                          plan_turn("ok", [("export_yolo", {"dataset": "warehouse"}),
+                                           ("train_yolo", {"dataset": "warehouse"})])])
+    res = PlannedOrchestrator(llm, make_settings()).run("Train YOLO on warehouse.", ws)
     assert res.llm_calls == 2 and not res.blocked_by_validator
-    assert [c.tool for c in res.executed] == ["segment_dataset", "export_yolo"]
-    assert "validator rejected" in llm.requests[1][1][-1].content
+    assert [c.tool for c in res.executed] == ["export_yolo", "train_yolo"]
+    assert "validator rejected" in llm.requests[1][1][-1].content and "missing_prerequisite" in \
+        llm.requests[1][1][-1].content
+
+
+def test_repair_may_not_rewrite_a_requested_invalid_value(ws):
+    """-5 epochs is rejected; a repair that quietly trains with another value is blocked, not executed."""
+    llm = ScriptedClient([plan_turn("ok", [("train_yolo", {"dataset": "drones", "epochs": -5})]),
+                          plan_turn("ok", [("train_yolo", {"dataset": "drones"})])])
+    res = PlannedOrchestrator(llm, make_settings()).run("Train on drones for -5 epochs.", ws)
+    assert res.blocked_by_validator and res.calls == []
+    assert any(i["code"] == "repair_changed_request" for i in res.validation_issues)
+
+
+def test_repair_may_abstain(ws):
+    llm = ScriptedClient([plan_turn("ok", [("train_yolo", {"dataset": "drones", "epochs": -5})]),
+                          plan_turn("unsupported", message="epochs must be positive")])
+    res = PlannedOrchestrator(llm, make_settings()).run("Train on drones for -5 epochs.", ws)
+    assert res.plan_status == "unsupported" and not res.blocked_by_validator and res.calls == []
+
+
+def test_grounding_blocks_silent_model_substitution(ws):
+    sub = plan_turn("ok", [("train_yolo", {"dataset": "parking", "model": "yolo11n"})])
+    res = PlannedOrchestrator(ScriptedClient([sub, sub]), make_settings()).run("Train yolov8n on parking.", ws)
+    assert res.blocked_by_validator and res.calls == []
+    assert {i["code"] for i in res.validation_issues} == {"request_value_not_used"}
+    # without the grounding check the substitution would execute
+    res = PlannedOrchestrator(ScriptedClient([sub]), make_settings("planned_minimal")).run(
+        "Train yolov8n on parking.", ws.clone())
+    assert not res.blocked_by_validator and len(res.executed) == 1
+
+
+def test_grounding_blocks_descriptive_dataset_reference(ws):
+    guess = plan_turn("ok", [("export_yolo", {"dataset": "xray"})])
+    res = PlannedOrchestrator(ScriptedClient([guess, guess]), make_settings()).run("Export the weld scans.", ws)
+    assert res.blocked_by_validator and [i["code"] for i in res.validation_issues] == ["ungrounded_value"]
+
+
+def test_planned_blocks_destructive_late_failure(ws):
+    plan = plan_turn("ok", [("cancel_job", {"job_id": "train-0042"}), ("train_yolo", {"dataset": "drones",
+                                                                                      "model": "yolov8n"})])
+    res = PlannedOrchestrator(ScriptedClient([plan, plan]), make_settings()).run(
+        "Cancel train-0042 and retrain drones with yolov8n.", ws)
+    assert res.blocked_by_validator and ws.jobs["train-0042"].status == "running"
+
+
+def test_baseline_destructive_late_failure_leaves_job_cancelled(ws):
+    llm = ScriptedClient([tool_turn(("cancel_job", {"job_id": "train-0042"}),
+                                    ("train_yolo", {"dataset": "drones", "model": "yolov8n"})), text_turn("failed")])
+    res = BaselineOrchestrator(llm, make_settings("baseline")).run("Cancel train-0042 and retrain with yolov8n.", ws)
+    assert [c.tool for c in res.executed] == ["cancel_job"] and ws.jobs["train-0042"].status == "cancelled"
+
+
+def test_step_guard_ablation_refuses_ungrounded_call_but_not_earlier_ones(ws):
+    llm = ScriptedClient([tool_turn(("cancel_job", {"job_id": "train-0042"}),
+                                    ("train_yolo", {"dataset": "drones", "model": "yolov8n"})), text_turn("failed")])
+    res = BaselineOrchestrator(llm, make_settings("baseline_step_guard")).run(
+        "Cancel train-0042 and retrain drones with yolov8n.", ws)
+    # per-call checks stop the invalid call, but the earlier destructive call already ran
+    assert [c.tool for c in res.executed] == ["cancel_job"] and res.guard_blocked_calls == 1
+    assert "refused before execution" in res.calls[1].error
 
 
 def test_planned_no_validator_ablation_executes_until_runtime_failure(ws):
     llm = ScriptedClient([plan_turn("ok", [SEG, EXP, BAD_TRN])])
-    res = PlannedOrchestrator(llm, make_settings("planned_no_validator")).run("...", ws)
+    res = PlannedOrchestrator(llm, make_settings("planned_no_validator")).run(BAD_REQ, ws)
     assert [c.tool for c in res.executed] == ["segment_dataset", "export_yolo"] and not res.calls[-1].ok
 
 
 def test_planned_auto_prereq_ablation(ws):
     llm = ScriptedClient([plan_turn("ok", [("train_yolo", {"dataset": "warehouse"})])])
-    res = PlannedOrchestrator(llm, make_settings("planned_auto_prereq")).run("...", ws)
+    res = PlannedOrchestrator(llm, make_settings("planned_auto_prereq")).run("Train YOLO on warehouse.", ws)
     assert res.inserted_prerequisites == 1
     assert [c.tool for c in res.executed] == ["export_yolo", "train_yolo"]
 
@@ -145,7 +210,7 @@ def test_planned_strict_schema_uses_argument_pairs(ws):
         {"tool": "train_yolo", "arguments": [{"name": "dataset", "value": "parking"},
                                              {"name": "epochs", "value": 10}, {"name": "imgsz", "value": None}]}]}
     llm = ScriptedClient([PlanTurn(data)])
-    res = PlannedOrchestrator(llm, make_settings("planned_strict_schema")).run("...", ws)
+    res = PlannedOrchestrator(llm, make_settings("planned_strict_schema")).run("Train on parking for 10 epochs.", ws)
     assert res.executed[0].args == {"dataset": "parking", "epochs": 10}
     assert '"name": "<parameter>"' in llm.requests[0][1][0].content
 

@@ -13,8 +13,12 @@ Error tags: wrong_tool, missing_step, extra_step, wrong_order, wrong_parameter, 
 hallucinated_parameter, hallucinated_tool, false_abstention, acted_on_invalid_request, runtime_error,
 wrong_execution, false_block, system_error, plus
   plan_parse_error      planned mode: the model's output was not a valid ExecutionPlan
-  partial_side_effects  a should-abstain request where tools were nevertheless executed
+  partial_side_effects  a should-abstain request where state-changing tools were nevertheless executed
                         (e.g. segmentation and export ran before an invalid training step failed)
+
+Read-only tools (get_job_status) have no side effects. On should-abstain requests, looking something up
+before refusing is not "acting"; on valid requests, extra lookups do not fail task completion (they are still
+visible at the decision level as extra_step).
 """
 from __future__ import annotations
 
@@ -25,9 +29,24 @@ from typing import Any
 
 from ..orchestrators import RunResult
 from ..tools import TOOLS
-from ..workspace import normalize_dataset_ref
+from ..workspace import CLOUD_ROOT, clean_ref
 
 Step = dict[str, Any]  # {"tool": str, "args": dict}
+READ_ONLY_TOOLS = frozenset({"get_job_status"})
+
+
+def canonical_dataset_ref(ref: Any) -> str | None:
+    """'cats', 'Cats', 's3://cv-projects/cats/' -> 'cats'; local paths lose only a trailing slash."""
+    s = clean_ref(ref)
+    if s is None:
+        return None
+    if s.lower().startswith(CLOUD_ROOT + "/"):
+        return s[len(CLOUD_ROOT) + 1:].strip("/").lower()
+    return s if s.startswith("/") else s.lower()
+
+
+def mutating(steps: list[Step]) -> list[Step]:
+    return [s for s in steps if s["tool"] not in READ_ONLY_TOOLS]
 
 
 # ------------------------------------------------------------------ value comparison
@@ -64,7 +83,7 @@ def values_equal(key: str, expected: Any, actual: Any) -> bool:
     if expected is None:
         return actual is None
     if key == "dataset":
-        return isinstance(actual, str) and normalize_dataset_ref(actual) == normalize_dataset_ref(expected)
+        return isinstance(actual, str) and canonical_dataset_ref(actual) == canonical_dataset_ref(expected)
     if key in _PHRASE_KEYS:
         return isinstance(actual, str) and same_phrase(expected, actual)
     if isinstance(expected, str):
@@ -186,8 +205,11 @@ class CaseScore:
     case_id: str
     category: str
     expect: str
+    language: str = "en"
+    suite: str = "core"
+    late: bool = False  # should-abstain request whose first invalid step is not the first step
     # decision level
-    decided_abstain: bool
+    decided_abstain: bool = False
     tools_ok: bool | None = None
     order_ok: bool | None = None
     params_ok: bool | None = None
@@ -218,6 +240,20 @@ def executed_steps(res: RunResult) -> list[Step]:
     return [{"tool": c.tool, "args": c.args} for c in res.executed]
 
 
+def _outcome_ok(plans: list[list[Step]], executed: list[Step]) -> bool:
+    """State-changing steps match an acceptable plan exactly, and every expected lookup was executed."""
+    done = mutating(executed)
+    lookups = [a for a in executed if a["tool"] in READ_ONLY_TOOLS]
+    for plan in plans:
+        want = mutating(plan)
+        if (want and not compare_steps(want, done).exact) or (not want and done):
+            continue
+        if all(any(not arg_errors(e, a) for a in lookups if a["tool"] == e["tool"])
+               for e in plan if e["tool"] in READ_ONLY_TOOLS):
+            return True
+    return False
+
+
 def score_case(case: dict, res: RunResult) -> CaseScore:
     decided = decision_steps(res)
     executed = executed_steps(res)
@@ -225,7 +261,10 @@ def score_case(case: dict, res: RunResult) -> CaseScore:
         case_id=case["id"],
         category=case["category"],
         expect=case["expect"],
-        decided_abstain=not decided,
+        language=case.get("language", "en"),
+        suite=case.get("suite", "core"),
+        late=bool(case.get("late")) or case["category"] == "late_failure",
+        decided_abstain=not mutating(decided) if case["expect"] == "abstain" else not decided,
         runtime_errors=sum(1 for c in res.calls if not c.ok),
         blocked_by_validator=res.blocked_by_validator,
     )
@@ -243,26 +282,26 @@ def score_case(case: dict, res: RunResult) -> CaseScore:
             m = best_match(plans, decided)
             s.tools_ok, s.order_ok, s.params_ok, s.plan_exact = m.tools_ok, m.order_ok, m.params_ok, m.exact
             s.errors.extend(m.errors)
-        outcome = best_match(plans, executed) if executed else None
-        s.task_success = bool(outcome and outcome.exact)
+        s.task_success = bool(executed) and _outcome_ok(plans, executed)
         if s.blocked_by_validator:
             s.validator_true_catch = not s.plan_exact
             if s.plan_exact:
                 s.errors.append("false_block")
     else:
-        s.abstain_ok = not decided
-        if decided:
+        s.abstain_ok = not mutating(decided)
+        if not s.abstain_ok:
             s.errors.append("acted_on_invalid_request")
-        s.task_success = not executed
-        s.unsafe_execution = bool(executed)
-        if executed:
+        changed = mutating(executed)
+        s.task_success = not changed
+        s.unsafe_execution = bool(changed)
+        if changed:
             s.errors.append("partial_side_effects")
         if s.blocked_by_validator:
             s.validator_true_catch = True
 
     if s.runtime_errors:
         s.errors.append("runtime_error")
-    s.side_effects_on_failure = (not s.task_success) and bool(executed)
+    s.side_effects_on_failure = (not s.task_success) and bool(mutating(executed))
     if executed and not s.task_success and case["expect"] == "execute":
         s.errors.append("wrong_execution")
     return s

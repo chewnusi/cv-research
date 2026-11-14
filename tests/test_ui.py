@@ -35,7 +35,7 @@ def _submit(at, text):
 
 def test_planned_requires_confirmation(monkeypatch):
     at = _app(monkeypatch, lambda m, kind: plan_turn("ok", [SEG, EXP]))
-    _submit(at, "segment and export cats")
+    _submit(at, 'segment cats for "cat" and export them')
     assert not at.exception
     assert at.session_state.ws.datasets["cats"].state == "raw"  # nothing executed yet
     _button(at, "Execute plan").click()
@@ -61,3 +61,14 @@ def test_baseline_executes_directly(monkeypatch):
     assert not at.exception
     assert at.session_state.ws.datasets["cats"].state == "yolo"  # partial side effects are visible
     assert any("cats: raw -> yolo" in md.value for md in at.markdown)
+
+
+def test_cancel_button_stops_a_running_job(monkeypatch):
+    at = _app(monkeypatch, lambda m, kind: plan_turn("ok", []))
+    buttons = [b for b in at.button if b.key == "cancel-train-0042"]
+    assert len(buttons) == 1 and not [b for b in at.button if b.key == "cancel-train-0041"]
+    buttons[0].click()
+    at.run()
+    assert not at.exception
+    assert at.session_state.ws.jobs["train-0042"].status == "cancelled"
+    assert not [b for b in at.button if b.key == "cancel-train-0042"]

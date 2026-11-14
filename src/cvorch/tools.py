@@ -6,7 +6,8 @@ The contracts describe the intended real system:
     export_yolo      SAM3 masks -> bounding boxes -> YOLO *detection* dataset
     train_yolo       Ultralytics YOLO *detection* training (creates a job)
     get_job_status   status/metrics of a training job
-    create_labeling_project  project in a labeling platform (mock; no CVAT)
+    cancel_job       cancel a queued or running training job (frees a GPU slot)
+    create_labeling_project  project in a labeling platform with a cloud folder for the dataset (mock; no CVAT)
 
 Nothing is actually executed: the runtime only updates the simulated workspace and returns
 plausible metadata. The research subject is orchestration, not CV quality.
@@ -20,11 +21,12 @@ from typing import Annotated, Any, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
-from .workspace import Job, Workspace, normalize_dataset_ref
+from .workspace import ACTIVE_JOB_STATUSES, Job, Workspace, clean_ref
 
 YOLO_DETECTION_MODELS = ("yolo11n", "yolo11s", "yolo11m", "yolo11l", "yolo11x")
 
 NonEmptyStr = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+DATASET_REF = "Dataset reference: a project name or the exact local path of a local dataset"
 
 
 class _Args(BaseModel):
@@ -35,7 +37,7 @@ class SegmentDatasetArgs(_Args):
     """Segment every image of a dataset with SAM3 using a text prompt describing the target objects.
     Works on a dataset in any state (re-segmenting replaces earlier annotations); the dataset becomes
     'annotated'. The text prompt must come from the user's request."""
-    dataset: str = Field(description="Dataset name, e.g. 'cats'.")
+    dataset: str = Field(description=f"{DATASET_REF}, e.g. 'cats' or '/data/local/dock_cam'.")
     text_prompt: NonEmptyStr = Field(description="Text description of the objects to segment, e.g. 'car'.")
     class_name: NonEmptyStr | None = Field(
         None, description="Class label for the resulting annotations. Defaults to the text prompt.")
@@ -47,15 +49,16 @@ class ExportYoloArgs(_Args):
     (masks -> bounding boxes; images/, labels/, data.yaml) with a train/val split.
     Needs the dataset in 'annotated' or 'yolo' state (a 'yolo' dataset can be re-exported) when the step
     runs; it becomes 'yolo'."""
-    dataset: str = Field(description="Dataset name, in 'annotated' or 'yolo' state when this step runs.")
+    dataset: str = Field(description=f"{DATASET_REF}; in 'annotated' or 'yolo' state when this step runs.")
     val_split: float = Field(0.2, gt=0.0, le=0.5, description="Fraction of images used for validation.")
 
 
 class TrainYoloArgs(_Args):
     """Start training an Ultralytics YOLO object-detection model on a dataset in YOLO format.
     Needs the dataset in 'yolo' state when the step runs. Returns a job id. Several training jobs may run
-    at the same time, on the same or different datasets."""
-    dataset: str = Field(description="Dataset name, in 'yolo' state when this step runs.")
+    at the same time, on the same or different datasets, up to the GPU quota (queued + running jobs); the call
+    fails when the quota is full."""
+    dataset: str = Field(description=f"{DATASET_REF}; in 'yolo' state when this step runs.")
     model: Literal[YOLO_DETECTION_MODELS] = Field("yolo11n", description="YOLO11 detection model variant.")  # type: ignore[valid-type]
     epochs: int = Field(100, ge=1, le=1000, description="Number of training epochs.")
     batch_size: int = Field(16, ge=1, le=256, description="Batch size.")
@@ -67,10 +70,18 @@ class GetJobStatusArgs(_Args):
     job_id: str = Field(description="Training job id, e.g. 'train-0041'.")
 
 
+class CancelJobArgs(_Args):
+    """Cancel a queued or running training job, freeing its GPU slot. Completed, failed or already cancelled
+    jobs cannot be cancelled. Cancelling cannot be undone."""
+    job_id: str = Field(description="Training job id, e.g. 'train-0042'.")
+
+
 class CreateLabelingProjectArgs(_Args):
-    """Create a project in the labeling platform for manual review/correction of a dataset (simulated)."""
-    project_name: NonEmptyStr = Field(description="Name of the labeling project.")
-    dataset: str = Field(description="Dataset name to attach to the project.")
+    """Create a project in the labeling platform for manual review/correction of a dataset (simulated). The
+    dataset is uploaded to the new project's cloud folder; afterwards the project name also refers to it.
+    The project name must not be taken by an existing project."""
+    project_name: NonEmptyStr = Field(description="Name of the new project.")
+    dataset: str = Field(description=f"{DATASET_REF}.")
 
 
 @dataclass(frozen=True)
@@ -107,6 +118,7 @@ TOOLS: dict[str, ToolSpec] = {
         ToolSpec("export_yolo", ExportYoloArgs),
         ToolSpec("train_yolo", TrainYoloArgs),
         ToolSpec("get_job_status", GetJobStatusArgs),
+        ToolSpec("cancel_job", CancelJobArgs),
         ToolSpec("create_labeling_project", CreateLabelingProjectArgs),
     ]
 }
@@ -139,10 +151,11 @@ def _numeric_type(tool: str, key: str) -> type | None:
 def normalize_value(tool: str, key: str, value: Any, workspace: Workspace | None = None) -> Any:
     """Lossless format conversion only; values are never clamped or changed in meaning."""
     if key == "dataset" and isinstance(value, str):
-        name = normalize_dataset_ref(value)
-        return name if workspace is None or name in workspace.datasets else value
-    if key == "job_id" and isinstance(value, str):
+        return clean_ref(value) or value
+    if key in ("job_id", "project_name") and isinstance(value, str):
         return value.strip()
+    if key == "model" and isinstance(value, str):
+        return value.strip().lower()
     typ = _numeric_type(tool, key)
     if typ is float and isinstance(value, str):
         if m := _PERCENT.match(value):
@@ -238,6 +251,7 @@ class MockToolRuntime:
             "export_yolo": self._export,
             "train_yolo": self._train,
             "get_job_status": self._status,
+            "cancel_job": self._cancel,
             "create_labeling_project": self._labeling,
         }
 
@@ -269,9 +283,10 @@ class MockToolRuntime:
         return merged
 
     def _dataset(self, ref: Any):
-        d = self.ws.resolve_dataset(ref if isinstance(ref, str) else None)
+        d = self.ws.resolve_dataset(ref)
         if d is None:
-            raise ToolError(f"dataset '{ref}' not found")
+            raise ToolError(f"dataset '{ref}' not found (use a project name or the exact local path of a local "
+                            "dataset)")
         return d
 
     def _segment(self, a: dict) -> dict:
@@ -286,7 +301,7 @@ class MockToolRuntime:
     def _export(self, a: dict) -> dict:
         d = self._dataset(a["dataset"])
         if d.state == "raw":
-            raise ToolError(f"dataset '{d.name}' has no annotations; segment it first")
+            raise ToolError(f"dataset '{a['dataset']}' has no annotations; segment it first")
         d.state = "yolo"
         val = a.get("val_split")
         num_val = round(d.num_images * val) if isinstance(val, (int, float)) else None
@@ -297,9 +312,13 @@ class MockToolRuntime:
     def _train(self, a: dict) -> dict:
         d = self._dataset(a["dataset"])
         if d.state != "yolo":
-            raise ToolError(f"dataset '{d.name}' is not in YOLO format (state={d.state}); export it first")
+            raise ToolError(f"dataset '{a['dataset']}' is not in YOLO format (state={d.state}); export it first")
+        active = self.ws.active_jobs()
+        if len(active) >= self.ws.gpu_quota:
+            raise ToolError(f"GPU quota exceeded: {len(active)} of {self.ws.gpu_quota} training slots are in use "
+                            f"({', '.join(active)})")
         job_id = self.ws.next_job_id()
-        self.ws.jobs[job_id] = Job(job_id, d.name, str(a.get("model")), a.get("epochs"), "queued")  # type: ignore[arg-type]
+        self.ws.jobs[job_id] = Job(job_id, d.id, str(a.get("model")), a.get("epochs"), "queued")  # type: ignore[arg-type]
         return {"status": "queued", "job_id": job_id, "model": a.get("model"), "epochs": a.get("epochs"),
                 "weights_path": f"runs/{job_id}/weights/best.pt"}
 
@@ -311,8 +330,21 @@ class MockToolRuntime:
         return {"job_id": job.job_id, "status": job.status, "dataset": job.dataset, "model": job.model,
                 "metrics": metrics}
 
+    def _cancel(self, a: dict) -> dict:
+        job = self.ws.jobs.get(str(a["job_id"]).strip())
+        if job is None:
+            raise ToolError(f"job '{a['job_id']}' not found")
+        if job.status not in ACTIVE_JOB_STATUSES:
+            raise ToolError(f"job '{job.job_id}' is {job.status} and cannot be cancelled")
+        previous, job.status = job.status, "cancelled"
+        return {"job_id": job.job_id, "status": "cancelled", "previous_status": previous,
+                "active_jobs": len(self.ws.active_jobs()), "gpu_quota": self.ws.gpu_quota}
+
     def _labeling(self, a: dict) -> dict:
         d = self._dataset(a["dataset"])
-        pid = self.ws.next_project_id()
-        self.ws.projects[pid] = {"name": a["project_name"], "dataset": d.name}
-        return {"status": "created", "project_id": pid, "backend": "MockLabelingService"}
+        name = str(a["project_name"]).strip()
+        if self.ws.project(name) is not None:
+            raise ToolError(f"project '{name}' already exists")
+        p = self.ws.add_project(name, d.id)
+        return {"status": "created", "project_id": p.project_id, "project_name": p.name,
+                "cloud_folder": p.cloud_folder, "uploaded_images": d.num_images, "backend": "MockLabelingService"}

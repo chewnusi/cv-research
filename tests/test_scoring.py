@@ -8,7 +8,11 @@ def S(tool, **args):
 
 
 def test_values_equal_normalization():
-    assert values_equal("dataset", "cats", "./data/cats/")
+    assert values_equal("dataset", "cats", "Cats")
+    assert values_equal("dataset", "cats", "s3://cv-projects/cats/")
+    assert values_equal("dataset", "/data/local/dock_cam", "/data/local/dock_cam/")
+    assert not values_equal("dataset", "cats", "./data/cats/")  # path variants are not project references
+    assert not values_equal("dataset", "/data/local/dock_cam", "/Data/local/dock_cam")
     assert values_equal("project_name", "Traffic QA", "'traffic qa'")
     assert values_equal("epochs", 50, 50.0)
     assert not values_equal("epochs", 50, 100)

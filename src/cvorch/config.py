@@ -23,24 +23,31 @@ class Profile:
     mode: Mode
     description: str
     planner_validate: bool = True
-    planner_repair_attempts: int = 0
+    planner_grounding: bool = True
+    planner_repair_attempts: int = 1
     planner_auto_prerequisites: bool = False
     planner_structured_output: StructuredOutput = "json_schema"
+    baseline_step_guard: bool = False
     primary: bool = False
 
 
 PROFILES: dict[str, Profile] = {p.name: p for p in [
     Profile("baseline", "baseline", "LLM -> direct tool calling (primary baseline)", primary=True),
-    Profile("planned", "planned", "LLM -> structured plan -> deterministic validation -> execution (primary proposed)",
-            primary=True),
+    Profile("planned", "planned", "LLM -> structured plan -> deterministic validation incl. request grounding -> "
+            "one validator-feedback repair -> execution (primary proposed)", primary=True),
+    Profile("baseline_step_guard", "baseline", "ablation: direct tool calling, every call checked by the same "
+            "validator + grounding before it runs (validation without a plan)", baseline_step_guard=True),
+    Profile("planned_no_repair", "planned", "ablation: no repair attempt (one-shot plan)", planner_repair_attempts=0),
+    Profile("planned_no_grounding", "planned", "ablation: validator without the request-grounding checks",
+            planner_grounding=False),
+    Profile("planned_minimal", "planned", "ablation: one-shot plan + contract/state validator only (the earlier "
+            "primary configuration)", planner_grounding=False, planner_repair_attempts=0),
     Profile("planned_no_validator", "planned", "ablation: structured plan executed without validation",
-            planner_validate=False),
+            planner_validate=False, planner_grounding=False, planner_repair_attempts=0),
     Profile("planned_strict_schema", "planned", "ablation: provider-side strict JSON schema for the plan",
             planner_structured_output="strict_json_schema"),
     Profile("planned_auto_prereq", "planned", "ablation: deterministic insertion of missing export_yolo steps",
             planner_auto_prerequisites=True),
-    Profile("planned_repair", "planned", "ablation: one validator-feedback repair attempt",
-            planner_repair_attempts=1),
 ]}
 
 _LEGACY_FLAGS = ("PLANNER_VALIDATE", "PLANNER_REPAIR_ATTEMPTS", "PLANNER_AUTO_PREREQUISITES", "PLANNER_RESPONSE_FORMAT")
@@ -68,9 +75,11 @@ class Settings:
     profile: str = "planned"
     mode: Mode = "planned"
     planner_validate: bool = True
-    planner_repair_attempts: int = 0
+    planner_grounding: bool = True
+    planner_repair_attempts: int = 1
     planner_auto_prerequisites: bool = False
     planner_structured_output: StructuredOutput = "json_schema"
+    baseline_step_guard: bool = False
 
     llm_model: str = "gpt-4o-mini"
     llm_api_key: str | None = None
@@ -89,9 +98,11 @@ class Settings:
             raise ValueError(f"unknown profile {name!r}; available: {', '.join(PROFILES)}")
         p = PROFILES[name]
         return replace(self, profile=p.name, mode=p.mode, planner_validate=p.planner_validate,
+                       planner_grounding=p.planner_grounding,
                        planner_repair_attempts=p.planner_repair_attempts,
                        planner_auto_prerequisites=p.planner_auto_prerequisites,
-                       planner_structured_output=p.planner_structured_output)
+                       planner_structured_output=p.planner_structured_output,
+                       baseline_step_guard=p.baseline_step_guard)
 
     @classmethod
     def from_env(cls, profile: str | None = None, load_dotenv_file: bool = True) -> Settings:

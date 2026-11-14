@@ -17,8 +17,8 @@ def _codes(tool, args):
 # ------------------------------------------------------------------ contracts
 
 
-def test_tool_set_is_exactly_the_five_contract_tools():
-    assert set(TOOLS) == {"segment_dataset", "export_yolo", "train_yolo", "get_job_status",
+def test_tool_set_is_exactly_the_contract_tools():
+    assert set(TOOLS) == {"segment_dataset", "export_yolo", "train_yolo", "get_job_status", "cancel_job",
                           "create_labeling_project"}
     assert {t["function"]["name"] for t in openai_tools()} == set(TOOLS)
 
@@ -81,8 +81,13 @@ def test_wrong_type_and_missing():
 
 
 def test_normalization_is_format_only(ws):
-    assert normalize_arguments("export_yolo", {"dataset": "./data/warehouse/", "val_split": "10%"}, ws) == {
+    assert normalize_arguments("export_yolo", {"dataset": " 'warehouse' ", "val_split": "10%"}, ws) == {
         "dataset": "warehouse", "val_split": 0.1}
+    assert normalize_arguments("export_yolo", {"dataset": "/data/local/solar_panels/"}, ws) == {
+        "dataset": "/data/local/solar_panels"}
+    assert normalize_arguments("train_yolo", {"dataset": "parking", "model": " YOLO11s "}, ws)["model"] == "yolo11s"
+    # path variants are not rewritten into project names
+    assert normalize_arguments("export_yolo", {"dataset": "./data/warehouse/"}, ws)["dataset"] == "./data/warehouse"
     assert normalize_arguments("train_yolo", {"dataset": "parking", "epochs": "80", "imgsz": None}, ws) == {
         "dataset": "parking", "epochs": 80}
     # values are never clamped into range
@@ -127,10 +132,51 @@ def test_job_status_and_labeling(ws):
     st = rt.call("get_job_status", {"job_id": "train-0041"})
     assert st.ok and st.output["status"] == "completed" and "metrics" in st.output
     lb = rt.call("create_labeling_project", {"project_name": "qa", "dataset": "cats"})
-    assert lb.ok and lb.output["project_id"] in ws.projects
+    assert lb.ok and ws.projects["qa"].project_id == lb.output["project_id"]
+    assert lb.output["cloud_folder"] == "s3://cv-projects/qa/"
+    assert ws.resolve_dataset("qa") is ws.datasets["cats"]  # the new project name refers to the dataset
+    assert not rt.call("create_labeling_project", {"project_name": "QA", "dataset": "dogs"}).ok  # name taken
 
 
 def test_resegmenting_marks_dataset_annotated_again(ws):
     rt = MockToolRuntime(ws)
     assert rt.call("segment_dataset", {"dataset": "parking", "text_prompt": "truck"}).ok
     assert ws.datasets["parking"].state == "annotated"
+
+
+# ------------------------------------------------------------------ references, cancellation, GPU quota
+
+
+def test_dataset_references_are_project_names_or_exact_local_paths(ws):
+    assert ws.resolve_dataset("parking").id == "parking"
+    assert ws.resolve_dataset("Parking").id == "parking"
+    assert ws.resolve_dataset("s3://cv-projects/parking/").id == "parking"
+    assert ws.resolve_dataset("/data/local/dock_cam").id == "local:dock_cam"
+    assert ws.resolve_dataset("/data/local/dock_cam/").id == "local:dock_cam"
+    for ref in ("data/parking", "./data/parking", "dock_cam", "local:dock_cam", "/data/local/dock", "the parking lot"):
+        assert ws.resolve_dataset(ref) is None, ref
+    rt = MockToolRuntime(ws)
+    assert rt.call("segment_dataset", {"dataset": "/data/local/dock_cam", "text_prompt": "pallet"}).ok
+    assert not rt.call("export_yolo", {"dataset": "data/parking"}).ok
+
+
+def test_cancel_job(ws):
+    rt = MockToolRuntime(ws)
+    rec = rt.call("cancel_job", {"job_id": "train-0042"})
+    assert rec.ok and rec.output["previous_status"] == "running" and ws.jobs["train-0042"].status == "cancelled"
+    assert not rt.call("cancel_job", {"job_id": "train-0042"}).ok  # already cancelled
+    assert not rt.call("cancel_job", {"job_id": "train-0041"}).ok  # completed
+    assert not rt.call("cancel_job", {"job_id": "train-0043"}).ok  # failed
+    assert not rt.call("cancel_job", {"job_id": "train-9999"}).ok
+    assert rt.call("get_job_status", {"job_id": "train-0042"}).output["status"] == "cancelled"
+
+
+def test_gpu_quota_and_cancel_frees_a_slot(ws):
+    rt = MockToolRuntime(ws)
+    assert ws.gpu_quota == 3 and ws.active_jobs() == ["train-0042"]
+    assert rt.call("train_yolo", {"dataset": "parking"}).ok
+    assert rt.call("train_yolo", {"dataset": "drones"}).ok
+    full = rt.call("train_yolo", {"dataset": "parking", "model": "yolo11s"})
+    assert not full.ok and "quota" in full.error
+    assert rt.call("cancel_job", {"job_id": "train-0042"}).ok
+    assert rt.call("train_yolo", {"dataset": "parking", "model": "yolo11s"}).ok

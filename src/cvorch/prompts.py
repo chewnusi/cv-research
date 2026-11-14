@@ -27,12 +27,17 @@ The tool definitions are the only source of rules. In particular:
 - A request may involve several datasets, models, jobs or projects: use one tool call per item; the same tool
   may be used any number of times in one request.
 - A dataset in 'yolo' state can be trained on directly, any number of times, with any supported model.
-- Multiple training jobs may run at the same time; existing jobs never prevent a new one.
-- Dataset references like 'dogs', 'data/dogs' and './data/dogs/' all mean the dataset 'dogs'.
-- Convert values to the tool's format: '10%' or '10 percent' validation -> val_split 0.1,
-  'a hundred epochs' -> 100, 'the nano/small/medium/large/extra-large model' -> yolo11n/s/m/l/x.
+- Training jobs run concurrently up to the GPU quota stated in the workspace (queued + running jobs, including
+  jobs started by this request). Cancelling a queued or running job (cancel_job) frees its slot.
+- A dataset is referred to in exactly one of two ways: by the name of the project that holds it, or, for a local
+  dataset, by its exact local path. Use the reference exactly as the user wrote it. A description ("the parking
+  lot images"), a partial path or a name that matches no project is not a reference.
+- Model names are taken exactly as written. A specific model name that is not a supported value (e.g. a
+  different YOLO version) is unsupported and is never replaced by a similar model; a description of a model
+  ("the small model") does not name one.
+- Convert only the format of values: '10%' or '10 percent' validation -> val_split 0.1, 'a hundred epochs' -> 100.
 - The SAM3 text prompt must come from the user's request (e.g. "segment traffic for cars" -> text_prompt
-  "car"). Never derive it from a dataset name or description.
+  "car"). Never derive it from a dataset name or description, and never translate or rephrase it.
 - If a dataset is not yet in the state a requested step needs, include the missing steps before it
   (annotated: export_yolo; raw: segment_dataset with the user's text prompt, then export_yolo). A missing
   prerequisite is never a reason to refuse. Example for a dataset D: "train on D" with D 'annotated' ->
@@ -41,15 +46,17 @@ The tool definitions are the only source of rules. In particular:
 - Optional parameters never have to be given by the user; their defaults apply.
 - A job id written in the request identifies the job (e.g. "is train-0001 done?" -> get_job_status with
   job_id "train-0001").
-- Do not invent other conditions, conflicts, resource limits or restrictions.
+- Do not invent conditions, conflicts, resource limits or restrictions beyond the ones stated here and in the
+  workspace.
 
 Policy:
-- Use only the parameter values the user asked for; leave other optional parameters at their defaults.
-  Never replace a value the user specified with a different one.
+- Never fill in anything the user did not say, beyond tool defaults: datasets, models, SAM3 prompts, class
+  names, job ids, project names and numbers must all come from the request. Leave other optional parameters
+  at their defaults. Never replace a value the user specified with a different one.
 - Add no steps beyond the request and its missing prerequisites.
 - A request is all-or-nothing. If any requested part needs a capability, model or format the tools do not
-  offer, or the request does not say which dataset, job, operation or segmentation target is meant, do not
-  perform any part of it; explain why instead.
+  offer, or the request does not say which dataset, model, job, project, operation or segmentation target is
+  meant, do not perform any part of it; explain why instead.
 
 Current workspace:
 {workspace}
@@ -69,13 +76,15 @@ Output protocol: do NOT execute anything. Return the complete workflow for the r
 }}
 - status "ok": the steps are validated by the system and then executed in order. A plan may contain any
   number of steps, including the same tool several times.
-- The system checks argument values and ranges, dataset and job existence and dataset states (simulated over
-  the whole plan) before anything runs, and rejects the whole plan if any step is invalid. Write the plan
-  exactly as requested; do not reject a request yourself because of a value, a reference or a state.
+- The system checks argument values and ranges, dataset, job and project references, dataset states, job
+  states and the GPU quota (simulated over the whole plan) and that every value is stated in the request,
+  before anything runs, and rejects the whole plan if any step is invalid. Write the plan exactly as requested;
+  do not reject a request yourself because of a value, a reference or a state.
 - status "unsupported": only if the request needs a tool, model, format or option that does not exist in the
   tool definitions.
-- status "needs_clarification": only if the request does not state a required value (the dataset, the job id,
-  the project name or the SAM3 text prompt) or the operation itself.
+- status "needs_clarification": only if the request does not state a required value (the dataset reference,
+  the job id, the project name or the SAM3 text prompt), names a model only by description, or does not state
+  the operation itself.
 - For "unsupported" and "needs_clarification", steps must be an empty list.
 - In "arguments", give only required parameters and the ones the user specified; omit all others so the
   tool defaults apply.{auto_prerequisites}"""
@@ -86,9 +95,10 @@ _AUTO_PREREQUISITES = """
 _REPAIR = """The system validator rejected your plan:
 {issues}
 
-Return a corrected plan in the same format. Never change values the user explicitly asked for to make the plan
-pass; if the request cannot be fulfilled as asked, return status "unsupported" or "needs_clarification" with an
-empty steps list."""
+Return a corrected plan in the same format. Fix only your own mistakes (missing prerequisite steps, wrong order,
+values the request does not state). Never change or drop values, models or steps the user explicitly asked for
+to make the plan pass, and never add values the user did not state; if the request cannot be fulfilled exactly
+as asked, return status "unsupported" or "needs_clarification" with an empty steps list."""
 
 
 def _system(ws: Workspace, protocol: str) -> str:

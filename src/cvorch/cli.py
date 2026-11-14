@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from .config import PROFILES, Settings
@@ -43,6 +44,16 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     from .bench.runner import DEFAULT_CASES, default_out_dir, load_cases, run_benchmark
 
     settings = Settings.from_env(profile=args.profile)
+    if args.concurrency:
+        settings = replace(settings, bench_concurrency=args.concurrency)
+    if args.retry_errors:
+        from .bench.runner import retry_errors
+        _, summary, n = retry_errors(Path(args.retry_errors), make_client(settings), settings, progress=not args.quiet)
+        from .bench.report import is_api_failure
+        left = sum(1 for line in (Path(args.retry_errors) / "cases.jsonl").read_text().splitlines()
+                   if line.strip() and is_api_failure(json.loads(line)["result"].get("error")))
+        print(f"retried {n} errored runs in {args.retry_errors}; system errors left: {left}")
+        return 1 if left else 0
     cases_path = Path(args.cases) if args.cases else DEFAULT_CASES
     cases = load_cases(cases_path, args.category, args.ids, args.limit)
     if not cases:
@@ -106,6 +117,10 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--repeats", type=int, default=1, help="run every case N times (LLM non-determinism)")
     b.add_argument("--out", help="output directory (default: results/<timestamp>_<profile>_<model>)")
     b.add_argument("--quiet", action="store_true")
+    b.add_argument("--concurrency", type=int,
+                   help="parallel case runs (default: $BENCH_CONCURRENCY or 1); latency is then measured under load")
+    b.add_argument("--retry-errors", metavar="DIR",
+                   help="re-run only the runs in DIR that ended in a system error (same --profile) and update it")
     b.set_defaults(func=_cmd_bench)
 
     c = sub.add_parser("compare", help="compare result directories (first one is the reference)")

@@ -16,15 +16,27 @@ Each case is either
 Expected `args` list only what the request determines. Any other argument the system passes must equal the
 tool default (class_name defaults to the text prompt), otherwise it counts as a hallucinated parameter.
 
+Every case has `language` (en | uk | mixed) and `suite`:
+  core      the original benchmark (relabelled for the explicit-request policy);
+  extended  cases added with the richer workspace: job cancellation, the GPU quota, long multi-dataset
+            workflows, local datasets and inexact references. Reported separately from `core`.
+`late` (abstain cases) marks requests whose literal plan is valid up to a later step, so step-by-step execution
+leaves partial side effects.
+
 Labeling rules (no subjective labels):
+  * explicit-request policy: a dataset is referenced by a project name (token in the request) or the exact
+    local path of a local dataset; models are named exactly; SAM3 prompts, job ids and project names are
+    written in the request. Descriptions ("the weld scans", "the small model", "the running job") need
+    clarification;
   * a SAM3 text prompt must be stated in the request; without it a segmentation request is ambiguous;
   * missing prerequisite steps (export before training an annotated dataset; segment+export before training
     a raw dataset when the prompt is given) are part of the expected plan;
   * a request is all-or-nothing: if any part is invalid/unsupported/unknown, the whole request must abstain.
 
 Workspace (see cvorch.workspace.default_workspace):
-  raw: cats, dogs, traffic, fruits | annotated: warehouse, xray | yolo: parking, drones
-  jobs: train-0041 completed, train-0042 running, train-0043 failed
+  projects  raw: cats, dogs, traffic, fruits | annotated: warehouse, xray | yolo: parking, drones
+  local     raw: /data/local/dock_cam | annotated: /data/local/solar_panels | yolo: /data/local/shelves
+  jobs      train-0041 completed, train-0042 running, train-0043 failed; GPU quota 3 active jobs
 """
 from __future__ import annotations
 
@@ -57,6 +69,30 @@ def L(name, ds):
     return _step("create_labeling_project", project_name=name, dataset=ds)
 
 
+def C(job):
+    return _step("cancel_job", job_id=job)
+
+
+DOCK, SOLAR, SHELVES = "/data/local/dock_cam", "/data/local/solar_panels", "/data/local/shelves"
+QUOTA, ACTIVE_JOBS = 3, ("train-0042",)
+
+
+def within_quota(plan):
+    active = set(ACTIVE_JOBS)
+    for i, st in enumerate(plan):
+        if st["tool"] == "train_yolo":
+            active.add(i)
+            if len(active) > QUOTA:
+                return False
+        elif st["tool"] == "cancel_job":
+            active.discard(st["args"]["job_id"])
+    return True
+
+
+def quota_filter(plans):
+    return [p for p in plans if within_quota(p)]
+
+
 def X(tool, **args):
     """A step with a tool that does not exist (only used in `literal` plans)."""
     return _step(tool, **args)
@@ -80,21 +116,25 @@ def anyorder(*steps):
 
 CASES: list[dict] = []
 UK_CASES: list[dict] = []
+SUITE = "core"
 
 
 def ok(cid, cat, prompt, *plans):
-    CASES.append({"id": cid, "category": cat, "prompt": prompt, "expect": "execute",
-                  "plans": [list(p) for p in plans]})
+    CASES.append({"id": cid, "category": cat, "prompt": prompt, "expect": "execute", "language": "en",
+                  "suite": SUITE, "plans": [list(p) for p in plans]})
 
 
 def oks(cid, cat, prompt, plans):
     ok(cid, cat, prompt, *plans)
 
 
-def no(cid, cat, prompt, reason, note, literal=None):
-    case = {"id": cid, "category": cat, "prompt": prompt, "expect": "abstain", "reason": reason, "note": note}
+def no(cid, cat, prompt, reason, note, literal=None, late=False):
+    case = {"id": cid, "category": cat, "prompt": prompt, "expect": "abstain", "language": "en", "suite": SUITE,
+            "reason": reason, "note": note}
     if literal is not None:
         case["literal"] = list(literal)
+    if late or cat == "late_failure":
+        case["late"] = True
     CASES.append(case)
 
 
@@ -108,7 +148,7 @@ ok("st-05", c, "Export the warehouse dataset to YOLO format.", [E("warehouse")])
 ok("st-06", c, "Convert the xray annotations into a YOLO detection dataset.", [E("xray")])
 ok("st-07", c, "Train a YOLO model on parking.", [T("parking")])
 ok("st-08", c, "Start a training run on the drones dataset.", [T("drones")])
-ok("st-09", c, "Segment pedestrians in data/traffic.", [S("traffic", "pedestrian")])
+ok("st-09", c, "Segment pedestrians in traffic.", [S("traffic", "pedestrian")])
 ok("st-10", c, "Fit YOLO to the parking data.", [T("parking")])
 ok("st-11", c, "Export xray to YOLO.", [E("xray")])
 ok("st-12", c, "Kick off YOLO training using drones.", [T("drones")])
@@ -225,15 +265,15 @@ ok("pp-02", c, "Could you get the warehouse annotations into YOLO format please?
 ok("pp-03", c, "Fire up a YOLO training on the parking lot data.", [T("parking")])
 ok("pp-04", c, "Have SAM3 outline the cars in traffic.", [S("traffic", "car")])
 ok("pp-05", c, "Turn xray into a YOLO dataset.", [E("xray")])
-ok("pp-06", c, "Let's train a detector on drones, small model please.", [T("drones", model="yolo11s")])
-ok("pp-07", c, "Please kick off a medium YOLO11 run on parking for 90 epochs.",
+ok("pp-06", c, "Let's train a detector on drones, yolo11s please.", [T("drones", model="yolo11s")])
+ok("pp-07", c, "Please kick off a YOLO11m run on parking for 90 epochs.",
    [T("parking", model="yolo11m", epochs=90)])
 ok("pp-08", c, 'Grab the cats folder, mask out "cat", and make it YOLO-ready.', [S("cats", "cat"), E("cats")])
 ok("pp-09", c, "How is train-0042 doing?", [J("train-0042")])
 ok("pp-10", c, 'Spin up a labeling project called "drone-labels" on drones.', [L("drone-labels", "drones")])
-ok("pp-11", c, 'Using data/fruits, segment "pear" and produce a YOLO export.', [S("fruits", "pear"), E("fruits")])
-ok("pp-12", c, "Go ahead and train on ./data/parking/ with the nano model.", [T("parking", model="yolo11n")])
-ok("pp-13", c, "Convert warehouse to YOLO, then fit the extra-large model on it.",
+ok("pp-11", c, f'Using {DOCK}, segment "pallet" and produce a YOLO export.', [S(DOCK, "pallet"), E(DOCK)])
+ok("pp-12", c, f"Go ahead and train on {SHELVES}/ with yolo11n.", [T(SHELVES, model="yolo11n")])
+ok("pp-13", c, "Convert warehouse to YOLO, then fit yolo11x on it.",
    [E("warehouse"), T("warehouse", model="yolo11x")])
 ok("pp-14", c, 'Please have SAM3 label the "crack" regions in xray again.', [S("xray", "crack")])
 ok("pp-15", c, "Use a hundred and twenty epochs and train on drones.", [T("drones", epochs=120)])
@@ -301,7 +341,7 @@ oks("lb-06", c, 'Segment fruits for "apple" and set up a labeling project "fruit
     anyorder(S("fruits", "apple"), L("fruit-fix", "fruits")))
 ok("lb-07", c, 'Create a labeling project named "traffic-raw" for the raw traffic images.',
    [L("traffic-raw", "traffic")])
-ok("lb-08", c, 'Start a labeling project "dogs-v2" on data/dogs.', [L("dogs-v2", "dogs")])
+ok("lb-08", c, f'Start a labeling project "dock-v1" on {DOCK}.', [L("dock-v1", DOCK)])
 oks("lb-09", c, 'Create a labeling project called "parking-review" for parking, then train yolo11s on parking.',
     anyorder(L("parking-review", "parking"), T("parking", model="yolo11s")))
 oks("lb-10", c, 'Export xray to YOLO and open a labeling project "xray-audit" for it.',
@@ -436,6 +476,131 @@ no("ne-09", c, 'Export the "pallets" dataset to YOLO.', "not_found", "'pallet' i
 no("ne-10", c, "Show job train-0044.", "not_found", "job train-0044", [J("train-0044")])
 
 
+# ---------------------------------------------------------------- inexact references (explicit-request policy)
+# A description of a dataset or model is not a reference; the system must ask instead of guessing.
+# `literal` is the silent substitution a system might make; the validator's grounding check must reject it.
+c = "inexact_reference"
+no("ir-01", c, "Let's train a detector on drones, small model please.", "ambiguous", "model given only by description",
+   [T("drones", model="yolo11s")])
+no("ir-02", c, "Please kick off a medium YOLO11 run on parking for 90 epochs.", "ambiguous",
+   "model given only by description", [T("parking", model="yolo11m", epochs=90)])
+no("ir-03", c, "Go ahead and train on parking with the large model.", "ambiguous", "model given only by description",
+   [T("parking", model="yolo11l")])
+no("ir-04", c, "Convert warehouse to YOLO, then fit the extra-large model on it.", "ambiguous",
+   "model given only by description", [E("warehouse"), T("warehouse", model="yolo11x")], late=True)
+
+SUITE = "extended"
+no("ir-05", c, "Train YOLO on the top-down car park images.", "ambiguous", "dataset given only by description",
+   [T("parking")])
+no("ir-06", c, "Export the weld scans to YOLO.", "ambiguous", "dataset given only by description", [E("xray")])
+no("ir-07", c, "Segment cars in the street camera frames.", "ambiguous", "dataset given only by description",
+   [S("traffic", "car")])
+no("ir-08", c, "Train yolov8n on drones for 30 epochs.", "unsupported", "unsupported model must not be replaced",
+   [T("drones", epochs=30)])
+no("ir-09", c, "Train YOLO on the aerial footage.", "ambiguous", "dataset given only by description", [T("drones")])
+no("ir-10", c, 'Segment the dock camera frames for "forklift".', "ambiguous", "local dataset without its path",
+   [S(DOCK, "forklift")])
+no("ir-11", c, "Train yolo11s on shelves.", "ambiguous", "local dataset must be referenced by its exact path",
+   [T(SHELVES, model="yolo11s")])
+no("ir-12", c, "Export solar_panels to YOLO.", "ambiguous", "local dataset must be referenced by its exact path",
+   [E(SOLAR)])
+no("ir-13", c, "Re-segment parking for the usual objects and export it again.", "ambiguous", "no SAM3 text prompt",
+   [S("parking", "car"), E("parking")])
+no("ir-14", c, "Check the status of the last job.", "ambiguous", "job id not written", [J("train-0043")])
+no("ir-15", c, "Create a labeling project for warehouse.", "ambiguous", "no project name",
+   [L("warehouse-review", "warehouse")])
+no("ir-16", c, "Cancel the running job.", "ambiguous", "job id not written (destructive)", [C("train-0042")])
+
+# ---------------------------------------------------------------- job cancellation
+c = "cancel_job"
+ok("cj-01", c, "Cancel job train-0042.", [C("train-0042")])
+ok("cj-02", c, "Stop train-0042, then check its status.", [C("train-0042"), J("train-0042")])
+oks("cj-03", c, "Cancel train-0042 and start yolo11s on drones for 50 epochs instead.",
+    anyorder(C("train-0042"), T("drones", model="yolo11s", epochs=50)))
+oks("cj-04", c, "Kill the running job train-0042, then export warehouse and train yolo11m on it.",
+    interleave([C("train-0042")], [E("warehouse"), T("warehouse", model="yolo11m")]))
+oks("cj-05", c, 'Abort train-0042 and create a labeling project "drones-relabel" for drones.',
+    anyorder(C("train-0042"), L("drones-relabel", "drones")))
+no("cj-06", c, "Cancel train-0041.", "invalid_value", "train-0041 is completed", [C("train-0041")])
+no("cj-07", c, "Cancel job train-0099.", "not_found", "job train-0099", [C("train-0099")])
+no("cj-08", c, "Cancel my training job.", "ambiguous", "job id not written")
+no("cj-09", c, "Stop train-0042 and train-0043.", "invalid_value", "train-0043 already failed",
+   [C("train-0042"), C("train-0043")], late=True)
+
+# ---------------------------------------------------------------- GPU quota (3 queued/running jobs, 1 active)
+c = "gpu_quota"
+oks("gq-01", c, "Train yolo11n and yolo11s on parking.",
+    anyorder(T("parking", model="yolo11n"), T("parking", model="yolo11s")))
+oks("gq-02", c, "Cancel train-0042, then train yolo11n, yolo11s and yolo11m on parking.",
+    [[C("train-0042"), *p] for p in anyorder(T("parking", model="yolo11n"), T("parking", model="yolo11s"),
+                                             T("parking", model="yolo11m"))])
+oks("gq-03", c, "Train yolo11m on drones and on parking, and cancel train-0042.",
+    quota_filter(anyorder(T("drones", model="yolo11m"), T("parking", model="yolo11m"), C("train-0042"))))
+oks("gq-04", c, 'Segment cats for "cat", export it, cancel train-0042, and train yolo11n on cats, parking and drones.',
+    quota_filter(interleave([S("cats", "cat"), E("cats"), T("cats", model="yolo11n")], [C("train-0042")],
+                            [T("parking", model="yolo11n")], [T("drones", model="yolo11n")])))
+no("gq-05", c, "Train yolo11n, yolo11s and yolo11m on parking.", "invalid_value", "4 active jobs > quota 3",
+   [T("parking", model="yolo11n"), T("parking", model="yolo11s"), T("parking", model="yolo11m")], late=True)
+no("gq-06", c, "Export warehouse and xray to YOLO and train yolo11s on warehouse, xray and drones.", "invalid_value",
+   "4 active jobs > quota 3", [E("warehouse"), T("warehouse", model="yolo11s"), E("xray"), T("xray", model="yolo11s"),
+                               T("drones", model="yolo11s")], late=True)
+no("gq-07", c, f"Train yolo11s on parking, drones and {SHELVES} for 20 epochs each.", "invalid_value",
+   "4 active jobs > quota 3", [T("parking", model="yolo11s", epochs=20), T("drones", model="yolo11s", epochs=20),
+                               T(SHELVES, model="yolo11s", epochs=20)], late=True)
+
+# ---------------------------------------------------------------- long multi-dataset workflows
+c = "long_workflow"
+oks("lw-01", c, 'Segment cats for "cat" and dogs for "dog", export both to YOLO, and train yolo11n on both.',
+    interleave([S("cats", "cat"), E("cats"), T("cats", model="yolo11n")],
+               [S("dogs", "dog"), E("dogs"), T("dogs", model="yolo11n")]))
+oks("lw-02", c, "Cancel train-0042, export warehouse and xray to YOLO, and train yolo11s on warehouse, xray and "
+                "drones.",
+    quota_filter(interleave([C("train-0042")], [E("warehouse"), T("warehouse", model="yolo11s")],
+                            [E("xray"), T("xray", model="yolo11s")], [T("drones", model="yolo11s")])))
+oks("lw-03", c, f'Segment {DOCK} for "pallet", export it with val_split 0.1, train yolo11s for 60 epochs, and create '
+                f'a labeling project "dock-review" from {DOCK}.',
+    interleave([S(DOCK, "pallet"), E(DOCK, val_split=0.1), T(DOCK, model="yolo11s", epochs=60)],
+               [L("dock-review", DOCK)]))
+oks("lw-04", c, f"Export {SOLAR} to YOLO, train yolo11m on it for 80 epochs, and check jobs train-0041 and "
+                "train-0042.",
+    interleave([E(SOLAR), T(SOLAR, model="yolo11m", epochs=80)], [J("train-0041")], [J("train-0042")]))
+oks("lw-05", c, 'Segment traffic for "bus" with confidence 0.6, export with a 0.25 validation split, train yolo11l at '
+                'imgsz 960 for 120 epochs, and create a labeling project "bus-qa" for traffic.',
+    interleave([S("traffic", "bus", confidence=0.6), E("traffic", val_split=0.25),
+                T("traffic", model="yolo11l", imgsz=960, epochs=120)], [L("bus-qa", "traffic")]))
+ok("lw-06", c, f'Create a labeling project "dock-qa" from {DOCK}, then segment dock-qa for "forklift", export it and '
+               "train yolo11n on dock-qa.",
+   [L("dock-qa", DOCK), S("dock-qa", "forklift"), E("dock-qa"), T("dock-qa", model="yolo11n")])
+oks("lw-07", c, f"Train yolo11n on {SHELVES} and yolo11s on parking, 40 epochs each, then check train-0041.",
+    [[*p, J("train-0041")] for p in anyorder(T(SHELVES, model="yolo11n", epochs=40),
+                                             T("parking", model="yolo11s", epochs=40))])
+oks("lw-08", c, 'Segment fruits for "apple", export to YOLO, train yolo11n for 30 epochs, and create a labeling '
+                'project "fruit-qa" for fruits.',
+    interleave([S("fruits", "apple"), E("fruits"), T("fruits", model="yolo11n", epochs=30)], [L("fruit-qa", "fruits")]))
+
+# ---------------------------------------------------------------- late failures in longer / destructive workflows
+c = "late_failure"
+no("lf-21", c, 'Segment cats for "cat" and dogs for "dog", export both, then train yolo11n on cats and yolov8n on dogs.',
+   "unsupported", "last step: unsupported model",
+   [S("cats", "cat"), S("dogs", "dog"), E("cats"), E("dogs"), T("cats", model="yolo11n"), T("dogs", model="yolov8n")])
+no("lf-22", c, "Cancel train-0042 and retrain drones with yolov8n.", "unsupported",
+   "destructive first step, unsupported model", [C("train-0042"), T("drones", model="yolov8n")])
+no("lf-23", c, 'Export warehouse to YOLO, train yolo11s on it, create a labeling project "wh-qa" for warehouse, then '
+               "train yolo11m on the pallets dataset.", "not_found", "last step: dataset 'pallets'",
+   [E("warehouse"), T("warehouse", model="yolo11s"), L("wh-qa", "warehouse"), T("pallets", model="yolo11m")])
+no("lf-24", c, "Retrain parking with yolo11m, then cancel train-0043.", "invalid_value", "train-0043 already failed",
+   [T("parking", model="yolo11m"), C("train-0043")])
+no("lf-25", c, 'Segment traffic for "car", export it, train yolo11s on it, and cancel train-0041.', "invalid_value",
+   "train-0041 is completed", [S("traffic", "car"), E("traffic"), T("traffic", model="yolo11s"), C("train-0041")])
+no("lf-26", c, f'Segment {DOCK} for "pallet", export it, and create a labeling project "parking" from it.',
+   "invalid_value", "project 'parking' already exists", [S(DOCK, "pallet"), E(DOCK), L("parking", DOCK)])
+no("lf-27", c, "Cancel train-0042, export xray, and train yolo11s on xray for -10 epochs.", "invalid_value",
+   "destructive first step, negative epochs", [C("train-0042"), E("xray"), T("xray", model="yolo11s", epochs=-10)])
+no("lf-28", c, f"Export {SOLAR} to YOLO, train yolo11m on it, and then train yolo11s on /data/local/solar_panel.",
+   "not_found", "last step: path typo", [E(SOLAR), T(SOLAR, model="yolo11m"), T("/data/local/solar_panel",
+                                                                              model="yolo11s")])
+SUITE = "core"
+
 # ---------------------------------------------------------------- Ukrainian paraphrases (secondary experiment)
 # The SAM3 text prompt stays an explicit English phrase in quotes; everything else is Ukrainian.
 _UK = {
@@ -471,10 +636,31 @@ _UK = {
 }
 
 
+# Extended-suite cases in Ukrainian and mixed Ukrainian-English technical language.
+_UK_EXT = {
+    "cj-01": ("uk", "Скасуй задачу train-0042."),
+    "cj-03": ("mixed", "Зупини train-0042 і запусти yolo11s на drones на 50 epochs."),
+    "cj-06": ("uk", "Скасуй train-0041."),
+    "gq-02": ("uk", "Скасуй train-0042, потім натренуй yolo11n, yolo11s і yolo11m на parking."),
+    "gq-05": ("uk", "Натренуй yolo11n, yolo11s і yolo11m на parking."),
+    "lw-03": ("mixed", f'Просегментуй {DOCK} по "pallet", експортуй з val_split 0.1, натренуй yolo11s на 60 epochs '
+                       f'і створи labeling project "dock-review" з {DOCK}.'),
+    "lw-08": ("mixed", 'Просегментуй fruits по промпту "apple", експортуй у YOLO, натренуй yolo11n на 30 epochs і '
+                       'створи labeling project "fruit-qa" для fruits.'),
+    "lf-22": ("uk", "Скасуй train-0042 і перенавчи drones на yolov8n."),
+    "ir-01": ("uk", "Натренуй детектор на drones, маленьку модель, будь ласка."),
+    "ir-06": ("uk", "Експортуй знімки зварних швів у YOLO."),
+    "ir-11": ("mixed", "Натренуй yolo11s на shelves."),
+    "ir-16": ("uk", "Скасуй задачу, яка зараз виконується."),
+}
+
+
 def _build_uk() -> None:
     by_id = {case["id"]: case for case in CASES}
     for src, prompt in _UK.items():
         UK_CASES.append({**by_id[src], "id": f"uk-{src}", "prompt": prompt, "source_id": src, "language": "uk"})
+    for src, (lang, prompt) in _UK_EXT.items():
+        UK_CASES.append({**by_id[src], "id": f"uk-{src}", "prompt": prompt, "source_id": src, "language": lang})
 
 
 _build_uk()
@@ -487,6 +673,7 @@ def _check() -> None:
         if case["expect"] == "execute":
             keys = [json.dumps(p, sort_keys=True) for p in case["plans"]]
             assert len(keys) == len(set(keys)), f"{case['id']}: duplicate acceptable plans"
+            assert all(within_quota(p) for p in case["plans"]), f"{case['id']}: plan exceeds the GPU quota"
 
 
 def _write(path: Path, cases: list[dict]) -> None:
@@ -502,5 +689,5 @@ if __name__ == "__main__":
     _write(here / "cases_uk.jsonl", UK_CASES)
     from collections import Counter
     print(f"wrote {len(CASES)} cases ({Counter(c['expect'] for c in CASES)}) and {len(UK_CASES)} Ukrainian cases")
-    for cat, n in Counter(c["category"] for c in CASES).items():
-        print(f"  {cat:<24} {n}")
+    for cat, n in Counter((c["suite"], c["category"]) for c in CASES).items():
+        print(f"  {cat[0]:<9} {cat[1]:<24} {n}")

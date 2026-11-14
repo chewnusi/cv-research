@@ -4,7 +4,8 @@ A: BaselineOrchestrator - LLM -> direct tool calling. Every call is executed imm
    fed back to the LLM, which continues the workflow. No global validation, so a late failure can leave
    earlier steps already executed (partial side effects).
 B: PlannedOrchestrator  - LLM -> complete structured ExecutionPlan -> deterministic full-plan validation
-   -> execution. Any issue blocks the whole plan; nothing executes.
+   (contracts, references, workflow state, GPU quota, grounding in the request) -> optional repair with the
+   validator's feedback -> execution. Any remaining issue blocks the whole plan; nothing executes.
 """
 from __future__ import annotations
 
@@ -19,10 +20,10 @@ from pydantic import ValidationError
 from .config import Settings
 from .llm import LLMClient, PlanTurn, ToolTurn
 from .normalize import normalize_plan
-from .plan import ExecutionPlan
+from .plan import ExecutionPlan, PlanStep
 from .prompts import baseline_system_prompt, planner_system_prompt, repair_prompt
-from .tools import MockToolRuntime, ToolCallRecord, openai_tools
-from .validator import complete_prerequisites, validate_plan
+from .tools import TOOLS, MockToolRuntime, ToolCallRecord, normalize_arguments, openai_tools
+from .validator import ValidationIssue, complete_prerequisites, repair_guard_issues, validate_plan
 from .workspace import Workspace
 
 
@@ -42,6 +43,8 @@ class RunResult:
     inserted_prerequisites: int = 0
     validation_issues: list[dict] = field(default_factory=list)
     blocked_by_validator: bool = False
+    # baseline_step_guard ablation: tool calls refused before execution
+    guard_blocked_calls: int = 0
     # bookkeeping
     llm_calls: int = 0
     input_tokens: int = 0
@@ -80,6 +83,7 @@ class RunResult:
             "inserted_prerequisites": self.inserted_prerequisites,
             "validation_issues": self.validation_issues,
             "blocked_by_validator": self.blocked_by_validator,
+            "guard_blocked_calls": self.guard_blocked_calls,
             "llm_calls": self.llm_calls,
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
@@ -99,6 +103,14 @@ class BaselineOrchestrator:
         self.llm = llm
         self.settings = settings
 
+    def _guard(self, name: str, args: dict, prompt: str, workspace: Workspace) -> list[ValidationIssue]:
+        """Ablation: the planned method's checks applied to one call at a time, against the live workspace."""
+        if name not in TOOLS:
+            return []  # the runtime reports unknown tools itself
+        step = PlanStep(tool=name, arguments=normalize_arguments(name, args, workspace))
+        return validate_plan(ExecutionPlan(status="ok", steps=[step]), workspace, request=prompt,
+                             check_coverage=False).issues
+
     def run(self, prompt: str, workspace: Workspace, on_call: OnCall | None = None) -> RunResult:
         res = RunResult(self.mode, self.settings.profile, prompt)
         runtime = MockToolRuntime(workspace, arg_validation=self.settings.tool_arg_validation)
@@ -114,10 +126,17 @@ class BaselineOrchestrator:
                     res.final_message = turn.content
                     break
                 for tc in turn.tool_calls:
+                    issues = (self._guard(tc.name, tc.args, prompt, workspace)
+                              if self.settings.baseline_step_guard and tc.args is not None else [])
                     if tc.args is None:
                         rec = ToolCallRecord(tc.name, {"_raw": tc.raw_args}, False,
                                              error="arguments are not a valid JSON object")
                         runtime.calls.append(rec)
+                    elif issues:
+                        rec = ToolCallRecord(tc.name, tc.args, False, error="refused before execution: "
+                                             + "; ".join(str(i) for i in issues))
+                        runtime.calls.append(rec)
+                        res.guard_blocked_calls += 1
                     else:
                         rec = runtime.call(tc.name, tc.args)
                     if on_call:
@@ -160,6 +179,8 @@ class PlannedOrchestrator:
                                                 auto_prerequisites=s.planner_auto_prerequisites)),
             HumanMessage(prompt),
         ]
+        request = prompt if s.planner_grounding else None
+        previous: tuple[ExecutionPlan, list[ValidationIssue]] | None = None
         t0 = time.perf_counter()
         try:
             for attempt in range(s.planner_repair_attempts + 1):
@@ -185,11 +206,14 @@ class PlannedOrchestrator:
                     log["plan"] = res.plan
                     if not s.planner_validate:
                         break
-                    vr = validate_plan(plan, workspace)
+                    vr = validate_plan(plan, workspace, request=request)
+                    if previous is not None and request is not None:
+                        vr.issues.extend(repair_guard_issues(*previous, plan, request))
                     res.validation_issues = vr.to_dicts()
                     res.blocked_by_validator = not vr.ok
                     if vr.ok:
                         break
+                    previous = (plan, vr.issues)
                     issues = [str(i) for i in vr.issues]
                 log["issues"] = issues
                 if attempt < s.planner_repair_attempts:
@@ -208,7 +232,7 @@ class PlannedOrchestrator:
         plan = ExecutionPlan.model_validate(res.plan)
         t0 = time.perf_counter()
         if self.settings.planner_validate:
-            vr = validate_plan(plan, workspace)
+            vr = validate_plan(plan, workspace, request=res.prompt if self.settings.planner_grounding else None)
             if not vr.ok:
                 res.validation_issues, res.blocked_by_validator = vr.to_dicts(), True
                 return res

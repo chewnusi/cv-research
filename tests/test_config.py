@@ -7,17 +7,20 @@ def test_primary_profiles():
     primary = {p.name for p in PROFILES.values() if p.primary}
     assert primary == {"baseline", "planned"}
     planned = PROFILES["planned"]
-    assert planned.planner_validate and planned.planner_repair_attempts == 0
+    assert planned.planner_validate and planned.planner_grounding and planned.planner_repair_attempts == 1
     assert not planned.planner_auto_prerequisites and planned.planner_structured_output == "json_schema"
+    minimal = PROFILES["planned_minimal"]
+    assert not minimal.planner_grounding and minimal.planner_repair_attempts == 0
+    assert PROFILES["baseline_step_guard"].mode == "baseline" and PROFILES["baseline_step_guard"].baseline_step_guard
 
 
 def test_profile_from_env(monkeypatch):
-    monkeypatch.setenv("ORCH_PROFILE", "planned_repair")
+    monkeypatch.setenv("ORCH_PROFILE", "planned_no_repair")
     monkeypatch.setenv("LLM_MODEL", "m")
     monkeypatch.setenv("LLM_TEMPERATURE", "0.3")
     monkeypatch.setenv("LLM_SEED", "7")
     s = Settings.from_env(load_dotenv_file=False)
-    assert s.profile == "planned_repair" and s.mode == "planned" and s.planner_repair_attempts == 1
+    assert s.profile == "planned_no_repair" and s.mode == "planned" and s.planner_repair_attempts == 0
     assert (s.llm_model, s.llm_temperature, s.llm_seed) == ("m", 0.3, 7)
     assert Settings.from_env(profile="baseline", load_dotenv_file=False).mode == "baseline"
 
@@ -27,7 +30,7 @@ def test_legacy_flags_are_ignored_with_warning(monkeypatch, capsys):
     monkeypatch.delenv("ORCH_MODE", raising=False)
     monkeypatch.setenv("PLANNER_REPAIR_ATTEMPTS", "3")
     s = Settings.from_env(load_dotenv_file=False)
-    assert s.profile == "planned" and s.planner_repair_attempts == 0
+    assert s.profile == "planned" and s.planner_repair_attempts == 1
     assert "PLANNER_REPAIR_ATTEMPTS is ignored" in capsys.readouterr().err
 
 

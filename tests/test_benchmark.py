@@ -29,9 +29,9 @@ def _plan(steps):
     return ExecutionPlan(status="ok", steps=[PlanStep(tool=s["tool"], arguments=s["args"]) for s in steps])
 
 
-def _validate(steps):
+def _validate(steps, request=None):
     ws = default_workspace()
-    return validate_plan(normalize_plan(_plan(steps), ws), ws)
+    return validate_plan(normalize_plan(_plan(steps), ws), ws, request=request)
 
 
 def test_cases_file_is_up_to_date():
@@ -41,9 +41,15 @@ def test_cases_file_is_up_to_date():
 
 
 def test_benchmark_size_and_coverage():
-    assert 170 <= len(CASES) <= 200
+    core = [c for c in CASES if c["suite"] == "core"]
+    assert 170 <= len(core) <= 200 and 30 <= len(CASES) - len(core) <= 60
+    assert {c["suite"] for c in CASES} == {"core", "extended"}
     assert len({c["id"] for c in CASES}) == len(CASES)
+    assert {c["language"] for c in CASES} == {"en"}
+    assert {c["language"] for c in UK_CASES} == {"uk", "mixed"}
     cats = Counter(c["category"] for c in CASES)
+    for required in ("cancel_job", "gpu_quota", "long_workflow", "inexact_reference"):
+        assert cats[required] >= 7, required
     for required in ("single_tool", "tool_with_params", "multi_step", "complex_multi_step", "paraphrase",
                      "missing_optional", "implicit_prerequisites", "job_status", "labeling", "invalid_parameter",
                      "unsupported", "ambiguous", "nonexistent_reference"):
@@ -72,7 +78,7 @@ def test_abstain_cases_have_reason():
 @pytest.mark.parametrize("case", EXECUTE, ids=lambda c: c["id"])
 def test_expected_plans_are_valid_and_executable(case):
     for steps in case["plans"]:
-        assert _validate(steps).ok, case["id"]
+        assert _validate(steps, case["prompt"]).ok, (case["id"], [str(i) for i in _validate(steps, case["prompt"]).issues])
         rt = MockToolRuntime(default_workspace())
         assert all(rt.call(s["tool"], s["args"]).ok for s in steps)
 
@@ -80,13 +86,21 @@ def test_expected_plans_are_valid_and_executable(case):
 @pytest.mark.parametrize("case", WITH_LITERAL, ids=lambda c: c["id"])
 def test_literal_plans_of_abstain_cases_are_rejected(case):
     assert case["expect"] == "abstain"
-    assert not _validate(case["literal"]).ok
+    assert not _validate(case["literal"], case["prompt"]).ok
 
 
-@pytest.mark.parametrize("case", [c for c in CASES if c["category"] == "late_failure"], ids=lambda c: c["id"])
+@pytest.mark.parametrize("case", [c for c in UK_CASES if "literal" in c or "plans" in c], ids=lambda c: c["id"])
+def test_ukrainian_prompts_ground_the_same_plans(case):
+    for steps in case.get("plans", []):
+        assert _validate(steps, case["prompt"]).ok, case["id"]
+    if "literal" in case:
+        assert not _validate(case["literal"], case["prompt"]).ok
+
+
+@pytest.mark.parametrize("case", [c for c in CASES if c.get("late")], ids=lambda c: c["id"])
 def test_late_failures_have_a_valid_executable_prefix(case):
-    issues = _validate(case["literal"]).issues
-    first_bad = min(i.step for i in issues if i.step)
+    issues = _validate(case["literal"], case["prompt"]).issues
+    first_bad = min((i.step for i in issues if i.step), default=len(case["literal"]) + 1)
     assert first_bad >= 2
     rt = MockToolRuntime(default_workspace())
     assert all(rt.call(s["tool"], s["args"]).ok for s in case["literal"][: first_bad - 1])
@@ -94,7 +108,7 @@ def test_late_failures_have_a_valid_executable_prefix(case):
 
 def test_ukrainian_cases_mirror_english_labels():
     by_id = {c["id"]: c for c in CASES}
-    assert 20 <= len(UK_CASES) <= 30
+    assert 30 <= len(UK_CASES) <= 60
     for c in UK_CASES:
         src = by_id[c["source_id"]]
         assert c["expect"] == src["expect"] and c.get("plans") == src.get("plans")
@@ -152,7 +166,10 @@ def test_literal_llm_shows_partial_side_effects_only_in_baseline():
     by_prompt = {c["prompt"]: c for c in CASES}
     _, base = run_benchmark(CASES, ScriptedClient(_literal(by_prompt)), make_settings("baseline"), progress=False)
     _, plan = run_benchmark(CASES, ScriptedClient(_literal(by_prompt)), make_settings("planned"), progress=False)
-    assert base["overall"]["late_failure_side_effect_rate"]["value"] == 1.0
+    # every late case whose valid prefix changes state leaves side effects in the baseline
+    late = [c for c in CASES if c.get("late")]
+    mutating_prefix = [c for c in late if c["literal"][0]["tool"] != "get_job_status"]
+    assert base["overall"]["late_failure_side_effect_rate"]["value"] == round(len(mutating_prefix) / len(late), 4)
     assert plan["overall"]["late_failure_side_effect_rate"]["value"] == 0.0
     assert plan["overall"]["unsafe_execution_rate"]["value"] == 0.0
     assert plan["overall"]["validator_blocked"] == len(WITH_LITERAL)
@@ -172,3 +189,26 @@ def test_results_are_written(tmp_path: Path):
     summary = json.loads((tmp_path / "summary.json").read_text())
     assert summary["meta"]["profile"] == "planned" and summary["meta"]["repeats"] == 2
     assert set(summary["meta"]["fingerprints"]) == {"cases", "initial_workspace", "tool_contracts", "shared_prompt"}
+
+
+def test_retry_errors_reruns_only_failed_runs(tmp_path: Path):
+    from cvorch.bench.runner import retry_errors
+    cases = CASES[:4]
+    by_prompt = {c["prompt"]: c for c in cases}
+    calls = {"n": 0}
+
+    def flaky(messages, kind):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("429 no credits")
+        return _oracle(by_prompt)(messages, kind)
+
+    settings = make_settings("planned")
+    _, summary = run_benchmark(cases, ScriptedClient(flaky), settings, out_dir=tmp_path, progress=False)
+    assert summary["overall"]["system_errors"] == 1
+    _, summary, n = retry_errors(tmp_path, ScriptedClient(_oracle(by_prompt)), settings, progress=False)
+    assert n == 1 and summary["overall"]["system_errors"] == 0
+    assert summary["overall"]["task_completion_rate"]["value"] == 1.0 and summary["meta"]["retried_errors"] == 1
+    assert len((tmp_path / "cases.jsonl").read_text().splitlines()) == 4
+    with pytest.raises(ValueError):
+        retry_errors(tmp_path, ScriptedClient(_oracle(by_prompt)), make_settings("baseline"), progress=False)

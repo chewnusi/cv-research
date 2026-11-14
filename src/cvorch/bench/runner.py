@@ -20,7 +20,7 @@ from ..orchestrators import make_orchestrator
 from ..prompts import shared_prompt_prefix
 from ..tools import openai_tools
 from ..workspace import default_workspace
-from .report import summarize
+from .report import is_api_failure, summarize
 from .scoring import score_case
 
 BENCHMARK_DIR = Path(__file__).resolve().parents[3] / "benchmark"
@@ -102,3 +102,36 @@ def default_out_dir(settings: Settings, root: Path = Path("results")) -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     model = settings.llm_model.replace("/", "_").replace(":", "_")
     return root / f"{stamp}_{settings.profile}_{model}"
+
+
+def retry_errors(out_dir: Path, llm: LLMClient, settings: Settings, progress: bool = True) -> tuple[list[dict], dict, int]:
+    """Re-run only the (case, repeat) records of an existing run that ended in a system error (e.g. an API
+    outage or exhausted credits), replace them in place and recompute the summary. Other records are kept."""
+    out_dir = Path(out_dir)
+    records = [json.loads(line) for line in (out_dir / "cases.jsonl").read_text().splitlines() if line.strip()]
+    old = json.loads((out_dir / "summary.json").read_text())
+    meta = old.get("meta", {})
+    if meta.get("profile") != settings.profile:
+        raise ValueError(f"{out_dir} was run with profile {meta.get('profile')!r}, not {settings.profile!r}")
+    todo = [i for i, rec in enumerate(records) if is_api_failure(rec["result"].get("error"))]
+
+    def _redo(i: int) -> dict:
+        rec = run_case(records[i]["case"], llm, settings, records[i]["repeat"])
+        if progress:
+            sc = rec["score"]
+            status = "ERROR" if rec["result"]["error"] else ("PASS" if sc["task_success"] else "FAIL")
+            print(f"[{settings.profile}] retry {rec['case']['id']:<6} r{rec['repeat']} {status}", flush=True)
+        return rec
+
+    with ThreadPoolExecutor(max_workers=max(1, settings.bench_concurrency)) as ex:
+        for i, rec in zip(todo, ex.map(_redo, todo)):
+            records[i] = rec
+    retried = len(todo)
+    summary = summarize(records)
+    summary["meta"] = {**meta, "retried_errors": meta.get("retried_errors", 0) + retried,
+                       "retried_at": datetime.now().isoformat(timespec="seconds")}
+    with (out_dir / "cases.jsonl").open("w") as f:
+        for rec in records:
+            f.write(json.dumps(rec) + "\n")
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    return records, summary, retried
