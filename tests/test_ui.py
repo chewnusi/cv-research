@@ -72,3 +72,38 @@ def test_cancel_button_stops_a_running_job(monkeypatch):
     assert not at.exception
     assert at.session_state.ws.jobs["train-0042"].status == "cancelled"
     assert not [b for b in at.button if b.key == "cancel-train-0042"]
+
+
+def test_compare_tab_runs_both_strategies_on_separate_workspaces(monkeypatch):
+    def responder(messages, kind):
+        if kind == "plan":
+            return plan_turn("ok", [SEG, EXP, BAD])
+        return text_turn("failed") if messages[-1].type == "tool" else tool_turn(SEG, EXP, BAD)
+    at = _app(monkeypatch, responder)
+    at.text_area(key="compare_prompt").input('Segment cats for "cat", export to YOLO and train for 0 epochs.')
+    at.run()
+    at.button(key="compare_run").click()
+    at.run()
+    assert not at.exception
+    cmp = at.session_state.compare
+    assert [c.tool for c in cmp["baseline"]["res"].executed] == ["segment_dataset", "export_yolo"]
+    assert cmp["planned"]["res"].blocked_by_validator and cmp["planned"]["res"].calls == []
+    assert cmp["planned"]["after"]["datasets"]["cats"]["state"] == "raw"
+    assert at.session_state.ws.datasets["cats"].state == "raw"  # the Demo workspace is untouched
+
+
+def test_attempt_history_shows_rejection_and_repair():
+    import importlib.util
+    from conftest import make_settings
+    from cvorch.orchestrators import PlannedOrchestrator
+    from cvorch.workspace import default_workspace
+    spec = importlib.util.spec_from_file_location("app", APP)
+    app = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(app)
+    sub = plan_turn("ok", [("train_yolo", {"dataset": "parking", "model": "yolo11n"})])
+    llm = ScriptedClient([sub, plan_turn("unsupported", message="no such model")])
+    res = PlannedOrchestrator(llm, make_settings()).run("Train yolov8n on parking.", default_workspace())
+    rows = app.attempt_history(res)
+    assert [r["plan status"] for r in rows] == ["ok", "unsupported"]
+    assert rows[0]["validator decision"].startswith("rejected: [request_value_not_used]")
+    assert app.validator_summary(res) == "1 plan(s) rejected; final: refused by planner"

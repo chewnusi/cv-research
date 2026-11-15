@@ -146,6 +146,113 @@ def _plan_view(res: RunResult, validated: bool) -> None:
         st.success("Validation passed for every step.")
 
 
+def _calls_table(res: RunResult) -> None:
+    """Compact, screenshot-friendly list of the tool calls that reached the runtime."""
+    if not res.calls:
+        st.info("No tool was executed.")
+        return
+    st.table([{"#": i, "tool": c.tool, "arguments": json.dumps(c.args, ensure_ascii=False),
+               "result": "ok" if c.ok else f"error: {c.error}"} for i, c in enumerate(res.calls, 1)])
+
+
+def attempt_history(res: RunResult) -> list[dict]:
+    """One row per planner attempt: what the LLM returned and what the validator decided."""
+    rows = []
+    for i, log in enumerate(res.plan_attempts, 1):
+        plan = log.get("plan") or {}
+        if log.get("parse_error"):
+            decision = f"not a valid plan: {log['parse_error']}"
+        elif plan.get("status") != "ok":
+            decision = "planner refused (nothing to validate)"
+        elif log.get("issues"):
+            decision = "rejected: " + "; ".join(log["issues"])
+        else:
+            decision = "passed"
+        rows.append({"attempt": i, "plan status": plan.get("status", "-"),
+                     "steps": len(plan.get("steps", [])), "validator decision": decision})
+    return rows
+
+
+def validator_summary(res: RunResult) -> str:
+    rejected = sum(1 for log in res.plan_attempts if log.get("issues"))
+    final = ("refused by planner" if res.plan_status not in (None, "ok")
+             else "blocked" if res.blocked_by_validator else "passed")
+    return f"{rejected} plan(s) rejected; final: {final}"
+
+
+def run_comparison(prompt: str, make: callable = None) -> dict:
+    """Run one request with the primary baseline and planned profiles, each on its own fresh clone of the
+    initial workspace. The planned plan is executed only if it passed validation (no UI confirmation here:
+    this tab is for side-by-side analysis; the Demo tab keeps the confirmation step)."""
+    make = make or make_client
+    out: dict = {"prompt": prompt}
+    for profile in ("baseline", "planned"):
+        settings = Settings.from_env(profile=profile)
+        ws = default_workspace()
+        before = ws.snapshot()
+        orch = make_orchestrator(make(settings), settings)
+        res = orch.run(prompt, ws)
+        out[profile] = {"res": res, "before": before, "after": ws.snapshot(),
+                        "validated": settings.planner_validate}
+    return out
+
+
+def _compare_column(title: str, run: dict) -> None:
+    res: RunResult = run["res"]
+    st.subheader(title)
+    if res.mode == "planned":
+        st.markdown("**1. Generated plan** (nothing runs yet)")
+        if len(res.plan_attempts) > 1:
+            st.markdown("Validator feedback and repair:")
+            st.table(attempt_history(res))
+            st.markdown("Final plan:")
+        _plan_view(res, run["validated"])
+        st.markdown("**2. Execution** (only after the whole plan passed validation)")
+    else:
+        st.markdown("**Tool calls** (each one executed immediately)")
+    if res.error:
+        st.error(f"System error: {res.error}")
+    _calls_table(res)
+    if res.mode == "baseline" and res.final_message:
+        st.markdown(f"**Assistant:** {res.final_message}")
+    _changes_view(run["before"], run["after"])
+    _stats(res)
+
+
+def _compare_tab() -> None:
+    st.caption("One request, two strategies, each on its own fresh copy of the initial workspace. The planned "
+               "plan is executed only if it passes validation.")
+    prompt = st.text_area("Request", key="compare_prompt",
+                          placeholder='e.g. Segment cats for "cat", export to YOLO and train for 0 epochs.')
+    if st.button("Run both", type="primary", disabled=not prompt.strip(), key="compare_run"):
+        with st.spinner("Running baseline and planned..."):
+            st.session_state.compare = run_comparison(prompt)
+        st.rerun()
+    cmp = st.session_state.get("compare")
+    if not cmp:
+        return
+    st.markdown(f"**Request:** {cmp['prompt']}")
+    left, right = st.columns(2)
+    with left:
+        _compare_column("Baseline: direct tool calling", cmp["baseline"])
+    with right:
+        _compare_column("Planned: plan → validate → execute", cmp["planned"])
+
+    b, p = cmp["baseline"]["res"], cmp["planned"]["res"]
+    st.markdown("**Summary**")
+    rows = [
+        ("Tools executed successfully", len(b.executed), len(p.executed)),
+        ("Failed tool calls", sum(not c.ok for c in b.calls), sum(not c.ok for c in p.calls)),
+        ("Workspace changes", len(snapshot_diff(cmp["baseline"]["before"], cmp["baseline"]["after"])),
+         len(snapshot_diff(cmp["planned"]["before"], cmp["planned"]["after"]))),
+        ("Validator", "not used", validator_summary(p)),
+        ("LLM calls", b.llm_calls, p.llm_calls),
+        ("Tokens (input + output)", b.input_tokens + b.output_tokens, p.input_tokens + p.output_tokens),
+        ("Total latency, s", f"{b.total_latency_s:.2f}", f"{p.total_latency_s:.2f}"),
+    ]
+    st.table([{"": name, "baseline": str(x), "planned": str(y)} for name, x, y in rows])
+
+
 def _results_tab() -> None:
     dirs = sorted([p for p in RESULTS_DIR.glob("**/summary.json") if "archive" not in p.relative_to(RESULTS_DIR).parts],
                   reverse=True) if RESULTS_DIR.exists() else []
@@ -180,9 +287,11 @@ def main() -> None:
             st.warning("LLM_API_KEY is not set (.env); requests will fail.")
         st.button("Reset workspace", on_click=_reset)
 
-    demo, results = st.tabs(["Demo", "Benchmark results"])
+    demo, compare, results = st.tabs(["Demo", "Compare", "Benchmark results"])
     with results:
         _results_tab()
+    with compare:
+        _compare_tab()
     with demo:
         with st.expander("How the two approaches differ", expanded=False):
             st.markdown(EXPLANATION)
